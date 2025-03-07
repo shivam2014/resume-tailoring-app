@@ -1,0 +1,128 @@
+\documentclass[9pt]{article}        % set main text size
+\usepackage{extsizes}               % Required to support 9pt option in article class
+\usepackage[letterpaper,            % set paper size to letterpaper
+top=0.5in,                          % specify top page margin
+bottom=0.5in,                       % specify bottom page margin
+left=0.5in,                         % specify left page margin
+right=0.5in]{geometry}              % specify right page margin
+                       
+\usepackage{charter}                % Use the charter package for Bitstream Charter-like font
+\usepackage[T1]{fontenc}            % output encoding
+\usepackage[utf8]{inputenc}         % input encoding
+\usepackage{microtype}              % for letter spacing (tracking) control
+\usepackage{enumitem}               % enable lists for bullet points: itemize and \item
+\usepackage[hidelinks]{hyperref}    % format hyperlinks
+\usepackage{titlesec}               % enable section title customization
+\raggedright                        % disable text justification
+\pagestyle{empty}                   % disable page numbering
+
+% ensure PDF output will be all-Unicode and machine-readable
+\input{glyphtounicode}
+\pdfgentounicode=1
+
+% format section headings: non-bold, regular weight, size, white space above and below, with minimal spacing
+\titleformat{\section}{\normalfont\large}{}{0pt}{}[\vspace{0pt}\titlerule\vspace{-2pt}]
+
+% format bullet points: size, white space above and below, white space between bullets (tighter)
+\renewcommand\labelitemi{$\vcenter{\hbox{\tiny$\bullet$}}$} % Changed to \tiny for smaller bullets
+\setlist[itemize]{itemsep=-4pt, leftmargin=12pt, topsep=4pt} % Tighter vertical spacing
+
+% resume starts here
+\begin{document}
+
+% name with different font sizes for first letters and remaining letters, all in bold, with increased letter spacing
+\centerline{%
+  \fontfamily{bch}\selectfont\textbf{%
+    {\fontsize{20.74}{25}\selectfont\textls[50]{S}}%
+    {\fontsize{14.4}{18}\selectfont\textls[50]{HIVAM}}%
+    \hspace{0.5em}% Adjust this value (e.g., 0.5em, 1em) for desired spacing
+    {\fontsize{20.74}{25}\selectfont\textls[50]{B}}%
+    {\fontsize{14.4}{18}\selectfont\textls[50]{HALLA}}%
+  }%  
+}
+\vspace{+2pt}
+
+% contact information (default spacing, no letter spacing adjustment)
+\centerline{ +33-753788537 | \href{mailto:shivam.bhalla07@gmail.com}{shivam.bhalla07@gmail.com} | \href{https://www.linkedin.com/in/shivambhalla07/}{linkedin.com/in/shivambhalla07} | Holder of Austrian RWR+ Work Permit }
+
+\vspace{+12pt} % Adjust this value for desired spacing
+
+% Tighter vertical spacing for summary
+Dynamic Aerospace Systems Engineer with over 5 years of experience in developing innovative aircraft and propulsion systems. Skilled in software development, systems engineering, and project leadership, with a proven ability to deliver high-impact solutions compliant with EASA and FAA standards.
+
+% Skills section with larger first letter, non-bold, all caps, with letter spacing
+\section*{{\fontsize{12}{14.4}\selectfont\textls[50]{S}}{\fontsize{9}{10.8}\selectfont\textls[50]{KILLS}}}
+\begin{itemize}
+\item \textbf{Technical Expertise:} Flight Physics, Aircraft Performance, Predictive Maintenance, Data Analysis
+\item \textbf{Software Development:} Python, MATLAB Simulink, PyQt5 (GUI), Automation, Git, Docker
+\item \textbf{Systems Engineering:} Systems Design, Requirements Management, Integration \& Validation, MBSE
+\item \textbf{Project Leadership:} Agile Methodology, Cross-functional Team Management, Data-driven cost optimization
+\item \textbf{Engineering tools:} Solidworks, Catia V5, Pace SysArc, Ansys Fluent, Siemens STAR-CCM+, Office Powerpoint, Excel, TIBCO Spotfire
+\end{itemize}
+
+% Experience section with larger first letter, non-bold, all caps, with letter spacing
+\section*{{\fontsize{12}{14.4}\selectfont\textls[50]{E}}{\fontsize{9}{10.8}\selectfont\textls[50]{XPERIENCE}}}
+\textbf{Lead Systems Engineer - Aircraft Performance} \hfill {Oct 2020 – Jul 2024} \\
+\textit{CycloTech GmbH} \hfill \textit{Linz, Austria}
+\begin{itemize}
+  \item Built Python-based Flight Performance Tool autonomously using agile development for aircraft conceptual design and analysis, reducing cycle time from 7 days to 30 seconds using Pandas, NumPy, SciPy, Multiprocessing for CycloRotor propulsion.
+  \item Collaborated with multiple department teams to integrate their wind tunnel test data and flight test validation of demonstrators into FPT, delivering reliable eVTOL simulation data ensuring compliance with SC-VTOL regulations.
+  \item Designed PyQt5 based GUI for FPT to streamline modules of propulsion, battery, aerostructures data for eVTOL aircrafts, enabling 600 configurations/hour via multiprocessing.
+  \item Promoted to Lead Engineer in 2023 to lead Aircar Demonstrator design with Blackbird propulsion using FPT, targeting mid-2025 launch.
+\end{itemize}
+\vspace{+5pt} % Adjust this value for desired spacing
+
+\textbf{Aircraft Performance Engineer} \hfill {Nov 2018 – Mar 2020}\\
+\textit{Airbus Operations SAS} \hfill \textit{Toulouse, France}
+\begin{itemize}
+  \item Co-led Agile development of PerfoRevolution tool with external subcontractors to cut engineer workflow by 85\% per cycle.
+  \item Engineered Python scripts for PerfoRevolution backend to automate SIMPA, OSMA, and Octopus simulator data using Python libraries such as Pandas, NumPy, SciPy.
+  \item Responsible as Technical Customer Support for Airbus Aircrafts incident response and change management, ensuring compliance with EASA Regulations (CS-23, CS-25) and Top Level Aircraft Requirements (TLARs).
+\end{itemize}
+\vspace{+5pt} % Adjust this value for desired spacing
+
+
+\textbf{Aircraft Engineer (Internship)} \hfill {Apr 2018 – Oct 2018}\\
+\textit{Aeroconseil, Akkodis} \hfill \textit{Toulouse, France} 
+\begin{itemize}
+  \item Designed Predictive Maintenance and Health Monitoring system for Airbus Flight Control Systems (ATA27) to reduce Aircraft On Ground (AOG) events and maintenance costs using MATLAB.
+  \item Presented and defended Master Thesis on predictive strategy using SimScape simulation model of A320 Rudder Actuator to predict Remaining Useful Life (RUL), identifying key sensor correlations with MATLAB Predictive Maintenance Toolbox.
+\end{itemize}
+
+
+%\vspace{+5pt} % Adjust this value for desired spacing
+
+
+%\textbf{CFD Engineer (Internship)} \hfill {Mar 2016 – May 2016}\\
+%\textit{Cd-Adapco, Siemens PLM} \hfill \textit{Chennai, India} 
+%\begin{itemize}
+%\item Achieved noise reduction below 85dB Rane TRW's Hydraulic Pump using CFD tool Star-CCM+ for Final Thesis for Bachelors’ degree.
+%\end{itemize}
+
+
+% Education section with larger first letter, non-bold, all caps, with letter spacing
+\section*{{\fontsize{12}{14.4}\selectfont\textls[50]{E}}{\fontsize{9}{10.8}\selectfont\textls[50]{DUCATION}}}
+\textbf{ISAE-SUPAERO} -- Masters in Aerospace Engineering - Aircraft Systems and Control \hfill Sep 2016 - Oct 2018 \\
+\textbf{Vellore Institute of Technology} -- Bachelors of Technology in Mechanical Engineering \hfill Jun 2012 - May 2016
+
+% Professional Development & Languages section with larger first letter, non-bold, all caps, with letter spacing
+\section*{{\fontsize{12}{14.4}\selectfont\textls[50]{P}}{\fontsize{9}{10.8}\selectfont\textls[50]{ROFESSIONAL DEVELOPMENT \& LANGUAGES}}}
+\textbf{Courses:} Data Analysis with Python 2024-2025 (University of Helsinki, Nov 2024 - Ongoing) \\
+\textbf{Languages:} English (Fluent), Hindi (Native), French (B1-B2), German (A1) \\
+\textbf{Hobbies :} Hiking, Travel Photography \\
+\textbf{Hobby Projects:} \\
+\vspace{-6 pt} % Adjust this value for desired spacing
+\begin{itemize}
+  \item Co-founder of Shaurya Racing : Built team and FSAE car for FSAE Formula Student India 2015 and 2016, represented VIT University. Currently in top 5 teams in Formula Student India.
+  \item Github : \href{https://github.com/shivam2014/}{https://github.com/shivam2014/}
+
+\end{itemize}
+
+% Publications section with larger first letter, non-bold, all caps, with letter spacing
+\section*{{\fontsize{12}{14.4}\selectfont\textls[50]{P}}{\fontsize{9}{10.8}\selectfont\textls[50]{UBLICATIONS}}}
+\begin{itemize}
+  \item \href{http://www.cyclotech.at/download/2005/}{"First Air Car with CycloRotors," CycloTech GmbH, 2023}
+  \item \href{https://www.cyclotech.at/cyclotech-presents-first-air-car-with-cyclorotors/}{"Innovative Cargo eVTOL Concept with CycloRotors," Yamato Holdings \& CycloTech GmbH, 2022}
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume AI Assistant</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
+    <!-- Only load diff, diff2html will be loaded dynamically -->
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js" defer></script>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Resume AI Assistant</h1>
+        
+        <form id="resumeForm" class="card">
+            <div class="form-group">
+                <label for="apiKey">Mistral API Key</label>
+                <input type="text" id="apiKey" placeholder="Enter your Mistral API key" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="resumeFile">Upload Your Resume (PDF or LaTeX)</label>
+                <input type="file" id="resumeFile" accept=".pdf,.tex" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="jobDescription">Job Description</label>
+                <textarea id="jobDescription" class="prompt-textarea" placeholder="Paste the job description here..." required></textarea>
+            </div>
+
+            <div class="form-group">
+                <button type="button" class="collapsible">Mistral AI Prompt Configuration</button>
+                <div class="prompt-content">
+                    <div class="form-group">
+                        <label for="analyzePrompt">Analysis Prompt</label>
+                        <textarea id="analyzePrompt" class="prompt-textarea"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tailorPrompt">Tailoring Prompt</label>
+                        <textarea id="tailorPrompt" class="prompt-textarea"></textarea>
+                    </div>
+                    
+                    <div class="editor-actions">
+                        <button type="button" id="savePromptsBtn" class="primary-button">Save Prompts</button>
+                        <button type="button" id="resetPromptsBtn" class="secondary-button">Reset to Default</button>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="primary-button">Analyze Resume</button>
+        </form>
+
+        <div id="requirementsCard" class="card" style="display: none;">
+            <div class="requirements-header">
+                <h3>Job Requirements Analysis</h3>
+            </div>
+            <div id="requirementsList" class="requirements-content"></div>
+        </div>
+
+        <div id="resumeChanges" class="card" style="display: none;">
+            <div class="resume-preview">
+                <div class="preview-header">
+                    <h3>Resume Changes</h3>
+                    <div class="preview-tabs">
+                        <div class="preview-tab active" data-view="side-by-side">Side by Side</div>
+                        <div class="preview-tab" data-view="line-by-line">Line by Line</div>
+                    </div>
+                </div>
+                <div class="preview-content">
+                    <div class="changes-content"></div>
+                </div>
+            </div>
+            <div class="editor-actions">
+                <button type="button" id="editChangesBtn" class="primary-button">Edit Changes</button>
+                <button type="button" id="acceptChangesBtn" class="secondary-button">Accept & Generate PDF</button>
+            </div>
+        </div>
+
+        <div id="result" class="card" style="display: none;"></div>
+
+        <div class="card">
+            <button type="button" class="collapsible active">Processing Log</button>
+            <div class="prompt-content visible-content">
+                <div id="logArea"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load order matters - util first, then main -->
+    <script type="module" src="/js/util.js"></script>
+    <script type="module" src="/js/main.js"></script>
+    <!-- Fallback for initialization -->
+    <script>
+        // Simple initialization fallback that doesn't rely on ES modules
+        window.addEventListener('load', function() {
+            // Use a single setTimeout to avoid multiple initialization attempts
+            setTimeout(function() {
+                if (window.reinitializeCollapsibles) {
+                    window.reinitializeCollapsibles();
+                } else {
+                    console.info('Using fallback collapsible initialization');
+                    document.querySelectorAll('.collapsible').forEach(function(button) {
+                        if (!button.hasAttribute('data-initialized')) {
+                            button.setAttribute('data-initialized', 'true');
+                            button.addEventListener('click', function() {
+                                this.classList.toggle('active');
+                                var content = this.nextElementSibling;
+                                if (content && (content.classList.contains('prompt-content') || 
+                                    content.classList.contains('collapsible-content'))) {
+                                    if (content.style.maxHeight) {
+                                        content.style.maxHeight = null;
+                                        content.style.opacity = '0';
+                                    } else {
+                                        content.style.display = 'block';
+                                        content.style.maxHeight = content.scrollHeight + 'px';
+                                        content.style.opacity = '1';
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            }, 200);
+        });
+    </script>
+</body>
+</html>

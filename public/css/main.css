@@ -1,0 +1,1457 @@
+/* Base variables for consistent theming */
+:root {
+    --primary: #4361ee;
+    --primary-light: #5a73f2;
+    --secondary: #3f37c9;
+    --accent: #4895ef;
+    --success: #4cc9f0;
+    --error: #e63946;
+    --text: #2b2d42;
+    --text-light: #8d99ae;
+    --background: #f8f9fa;
+    --card-bg: #ffffff;
+    --border: #e9ecef;
+    --shadow: rgba(0, 0, 0, 0.1);
+    --radius: 0.5rem;
+}
+
+/* Global styles */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+        Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    color: var(--text);
+    background-color: var(--background);
+    line-height: 1.6;
+    padding: 2rem 1rem;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+h1 {
+    color: var(--primary);
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+h3 {
+    color: var(--text);
+    margin-bottom: 1rem;
+}
+
+/* Card styling */
+.card {
+    background-color: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 6px var(--shadow);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    position: relative; /* Add relative positioning */
+    z-index: 1; /* Base z-index for cards */
+}
+
+/* Form styling */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+input[type="text"],
+input[type="file"],
+textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 1rem;
+    background: var(--card-bg);
+    transition: border-color 0.3s ease;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.prompt-textarea {
+    min-height: 150px;
+    resize: vertical;
+}
+
+/* Button styling */
+.primary-button,
+.secondary-button {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.primary-button {
+    background-color: var(--primary);
+    color: white;
+}
+
+.primary-button:hover {
+    background-color: var(--primary-light);
+    transform: translateY(-2px);
+}
+
+.secondary-button {
+    background-color: var(--border);
+    color: var(--text);
+    margin-left: 0.5rem;
+}
+
+.secondary-button:hover {
+    background-color: #d8dde2;
+}
+
+/* Resume preview styling */
+.resume-preview {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden; /* Keep this to ensure content stays inside */
+    position: relative; /* Add position context */
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background-color: #f1f3f5;
+    border-bottom: 1px solid var(--border);
+    position: sticky; /* Make header sticky */
+    top: 0; /* Stick to top */
+    z-index: 2; /* Higher than content */
+}
+
+.preview-tabs {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping on smaller screens */
+}
+
+.preview-tab {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: var(--radius);
+    margin-left: 0.5rem;
+    margin-bottom: 0.5rem; /* Add spacing when tabs wrap */
+}
+
+.preview-tab.active {
+    background-color: var(--primary);
+    color: white;
+}
+
+.preview-content {
+    padding: 1rem;
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: hidden; /* Prevent horizontal overflow */
+    background: var(--card-bg);
+    position: relative; /* Add position context */
+}
+
+.changes-content {
+    font-family: monospace;
+    width: 100%; /* Ensure it takes full width of parent */
+    overflow-x: auto; /* Allow horizontal scrolling within container */
+}
+
+/* Simple text comparison mode styles */
+.simple-diff-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    font-family: 'Consolas', 'Monaco', monospace;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 1rem 0;
+    overflow: hidden;
+}
+
+.simple-diff-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+}
+
+.simple-diff-header-left, 
+.simple-diff-header-right {
+    background: #f8f9fa;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+}
+
+.simple-diff-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    max-height: 800px;
+}
+
+.simple-diff-left, 
+.simple-diff-right {
+    background: var(--card-bg);
+    overflow: auto;
+    padding: 1.5rem;
+    line-height: 1.5;
+}
+
+.simple-diff-text {
+    margin: 0;
+    white-space: pre-wrap; /* Allow text to wrap */
+    word-break: break-word; /* Break long words if needed */
+    font-size: 0.95rem;
+    tab-size: 4;
+}
+
+/* Improve paragraph and section spacing */
+.simple-diff-text p {
+    margin: 1em 0;
+}
+
+.simple-diff-text h1,
+.simple-diff-text h2,
+.simple-diff-text h3 {
+    margin: 1.5em 0 0.75em;
+}
+
+/* Better bullet point spacing */
+.simple-diff-text ul {
+    margin: 0.75em 0;
+    padding-left: 1.5em;
+}
+
+.simple-diff-text li {
+    margin: 0.5em 0;
+    padding-left: 0.5em;
+}
+
+/* Improve info bar styling */
+.diff-info-bar {
+    background-color: #e6f7ff;
+    border-left: 4px solid #1890ff;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius);
+}
+
+.diff-info-bar p {
+    margin: 0;
+    color: #0050b3;
+    font-size: 0.9rem;
+}
+
+/* Section headers in extracted text */
+.simple-diff-text h1,
+.simple-diff-text h2,
+.simple-diff-text h3 {
+    margin: 1.5rem 0 0.75rem 0;
+    color: var(--text);
+}
+
+/* Links in extracted text */
+.simple-diff-text a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+.simple-diff-text a:hover {
+    text-decoration: underline;
+}
+
+/* Container improvements */
+.simple-diff-container {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    margin-bottom: 1rem;
+}
+
+.simple-diff-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    max-height: 800px;
+}
+
+.simple-diff-left,
+.simple-diff-right {
+    background: var(--card-bg);
+    overflow: auto;
+    padding: 0;
+}
+
+/* Better header styling */
+.simple-diff-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+}
+
+.simple-diff-header-left,
+.simple-diff-header-right {
+    background: #f8f9fa;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Info bar styling for diff mode */
+.diff-info-bar {
+    background-color: #e6f7ff;
+    border-left: 4px solid #1890ff;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius);
+}
+
+.diff-info-bar p {
+    margin: 0;
+    color: #0050b3;
+    font-size: 0.9rem;
+}
+
+/* Editor notice styling */
+.editor-notice {
+    background-color: #fff7e6;
+    border-left: 4px solid #faad14;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius);
+}
+
+.editor-notice p {
+    margin: 0;
+    color: #874d00;
+    font-size: 0.9rem;
+}
+
+/* Fix for diff2html container overflow */
+.d2h-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Fix for diff line cells */
+.d2h-file-side-diff {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.d2h-code-line {
+    white-space: pre-wrap; /* Allow lines to wrap */
+}
+
+.d2h-code-side-line {
+    word-break: break-word; /* Break long words */
+}
+
+/* Fix for diff2html tables */
+.d2h-diff-table {
+    max-width: 100%;
+    table-layout: fixed; /* Fixed layout helps control width */
+}
+
+/* Editor actions */
+.editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.editor-container {
+    width: 100%;
+}
+
+.resume-editor {
+    width: 100%;
+    height: 500px;
+    font-family: monospace;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    resize: vertical;
+}
+
+/* Requirements styling */
+.requirements h4 {
+    margin-top: 1rem;
+    color: var(--secondary);
+    font-size: 1.1rem;
+}
+
+.requirements ul {
+    margin-left: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+/* Download links */
+.download-section {
+    margin-left: auto;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ddd;
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.download-link {
+    display: inline-block;
+    margin-left: 1rem;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    background: var(--primary);
+    color: white;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.download-link:hover {
+    text-decoration: underline;
+    background: var(--primary-dark);
+}
+
+/* Log area styling */
+#logArea {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    font-family: monospace;
+    background-color: #f8f9fa;
+    position: relative; /* Add positioning */
+    z-index: 1; /* Same as other content */
+}
+
+.log-entry {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.log-info {
+    color: var(--text);
+}
+
+.log-error {
+    color: var(--error);
+}
+
+/* LaTeX syntax highlighting */
+.tex-command {
+    color: #0066cc;
+    font-weight: bold;
+}
+
+.tex-arg {
+    color: #009688;
+}
+
+/* LaTeX error display */
+.error-section {
+    padding: 1rem;
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+.error-section .error-message {
+    color: var(--error);
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+.latex-log {
+    background: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 1rem;
+    margin: 1rem 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.latex-log pre {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Processing state */
+.processing {
+    text-align: center;
+    padding: 1rem;
+    font-style: italic;
+    color: var(--primary);
+}
+
+/* Collapsible elements styling - improved */
+.collapsible-button, .collapsible {
+    background-color: #f1f1f1;
+    color: #444;
+    cursor: pointer;
+    padding: 18px;
+    width: 100%;
+    border: none;
+    text-align: left;
+    outline: none;
+    font-size: 15px;
+    transition: background-color 0.3s ease;
+    position: relative;
+    border-radius: var(--radius);
+    margin-bottom: 0;
+    user-select: none; /* Prevent text selection on button */
+    z-index: 1; /* Ensure clickability */
+}
+
+.collapsible-button:after, .collapsible:after {
+    content: "\002B"; /* Plus sign */
+    color: #777;
+    font-weight: bold;
+    float: right;
+    margin-left: 5px;
+    pointer-events: none; /* Prevent this element from capturing clicks */
+}
+
+.collapsible-button.active:after, .collapsible.active:after {
+    content: "\2212"; /* Minus sign */
+}
+
+.collapsible-content, .prompt-content {
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    background-color: white;
+    visibility: hidden;
+    opacity: 0;
+    display: none; /* Initially hidden */
+    transition: max-height 0.3s ease-out, 
+                opacity 0.3s ease-out, 
+                visibility 0.3s ease-out;
+}
+
+/* Active state */
+.collapsible-button.active, .collapsible.active {
+    background-color: #e7e7e7;
+    margin-bottom: 0;
+}
+
+/* Additional styling for prompt content from index.html */
+.prompt-content {
+    border-radius: 0.75rem;
+}
+
+/* Force-visible content for specific cases like the log section */
+.prompt-content.visible-content {
+    max-height: 2000px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+    padding: 1.5rem !important;
+    margin-top: 0.5rem !important;
+    border: 2px solid var(--border) !important;
+    transform: translateY(0) !important;
+    position: relative; /* Add positioning */
+    z-index: 1; /* Same as other content */
+}
+
+/* Additional fixes for diff2html specific elements */
+.d2h-file-header {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.d2h-file-list {
+    margin: 0;
+    padding: 0;
+}
+
+/* Override diff2html CSS that might be causing overflow */
+.d2h-file-wrapper {
+    margin-bottom: 1em;
+    max-width: 100%;
+    overflow-x: hidden; /* Prevent horizontal overflow */
+}
+
+.d2h-file-collapse {
+    display: none; /* Hide collapse button that might cause overflow */
+}
+
+/* Fix for line numbers overflow in mobile view */
+.d2h-code-side-linenumber {
+    position: sticky;
+    left: 0;
+    background-color: #f7f7f7;
+    z-index: 1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .preview-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .preview-tabs {
+        margin-top: 1rem;
+    }
+    
+    .editor-actions {
+        flex-direction: column;
+    }
+    
+    .secondary-button {
+        margin-left: 0;
+        margin-top: 0.5rem;
+    }
+    
+    .preview-content {
+        max-height: 400px; /* Smaller on mobile */
+    }
+    
+    .d2h-file-side-diff {
+        overflow-x: auto;
+        font-size: 0.8rem; /* Smaller font on mobile */
+    }
+}
+
+/* Add this at the end of your CSS file */
+
+/* Streaming components */
+.streaming-option {
+    margin: 15px 0;
+    padding: 10px;
+    background-color: var(--bg-light);
+    border-radius: 5px;
+    border-left: 4px solid var(--primary);
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding-left: 30px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox-container input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.checkmark {
+    position: absolute;
+    left: 0;
+    height: 20px;
+    width: 20px;
+    background-color: #eee;
+    border-radius: 3px;
+}
+
+.checkbox-container:hover input ~ .checkmark {
+    background-color: #ccc;
+}
+
+.checkbox-container input:checked ~ .checkmark {
+    background-color: var(--primary);
+}
+
+.checkmark:after {
+    content: "";
+    position: absolute;
+    display: none;
+}
+
+.checkbox-container input:checked ~ .checkmark:after {
+    display: block;
+}
+
+.checkbox-container .checkmark:after {
+    left: 7px;
+    top: 3px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.streaming-container {
+    margin: 15px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: var(--bg-light);
+}
+
+.streaming-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: var(--primary);
+    color: var(--text-light);
+}
+
+.streaming-header h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.streaming-status {
+    font-size: 0.85rem;
+    font-style: italic;
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.streaming-content {
+    padding: 15px;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+/* Animation for streaming */
+@keyframes blink {
+    0% { opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { opacity: 0.2; }
+}
+
+.streaming-status:after {
+    content: '...';
+    animation: blink 1.5s infinite;
+}
+
+/* Syntax highlighting for streamed content */
+.streaming-content .tex-command {
+    color: #0000cc;
+    font-weight: bold;
+}
+
+.streaming-content .tex-arg {
+    color: #006633;
+}
+
+.streaming-content .json-key {
+    color: #881391;
+    font-weight: bold;
+}
+
+.streaming-content .json-string {
+    color: #1a1aa6;
+}
+
+.streaming-content .json-number {
+    color: #098658;
+}
+
+.streaming-content .json-boolean {
+    color: #0070c1;
+}
+
+/* Add this with the other streaming components */
+.streaming-note {
+    margin: 10px 0;
+    padding: 10px 15px;
+    background-color: #f0f8ff;
+    border-radius: 5px;
+    border-left: 4px solid var(--primary);
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+.streaming-note p {
+    margin: 0;
+}
+
+/* Job requirements analysis display */
+.job-analysis .simple-diff-text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    white-space: pre-wrap;
+}
+
+.job-analysis .simple-diff-header-right {
+    background-color: #e9ecef;
+    font-weight: bold;
+}
+
+/* Style job requirement categories */
+.job-analysis .simple-diff-text {
+    counter-reset: category;
+}
+
+.job-analysis .simple-diff-text strong {
+    color: #2c5282;
+}
+
+/* Add spacing between categories */
+.job-analysis .simple-diff-text:empty {
+    display: block;
+    height: 1em;
+}
+
+/* Style bullet points */
+.job-analysis .simple-diff-text {
+    list-style-position: inside;
+}
+
+.job-analysis .simple-diff-text > * {
+    margin-bottom: 0.5em;
+}
+
+/* Add at the end of the file */
+
+/* Resume section styles */
+.section-name,
+.section-contact,
+.section-summary,
+.section-skills,
+.section-experience,
+.section-education,
+.section-professional,
+.section-publications {
+    margin: 1rem 0;
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+/* Different background colors for sections */
+.section-name { background-color: #e8f4f8; }
+.section-contact { background-color: #e8f8f5; }
+.section-summary { background-color: #f8f4e8; }
+.section-skills { background-color: #f4e8f8; }
+.section-experience { background-color: #f8e8e8; }
+.section-education { background-color: #e8f8e8; }
+.section-professional { background-color: #f0f0f8; }
+.section-publications { background-color: #f8f0f0; }
+
+/* Section headers */
+[class^="section-"] h2 {
+    color: var(--text);
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 0.5rem;
+}
+
+/* Changes highlighting */
+.text-change {
+    background-color: #fff3cd;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+}
+
+.text-addition {
+    background-color: #d4edda;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+}
+
+.text-removal {
+    background-color: #f8d7da;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+    text-decoration: line-through;
+}
+
+/* Split view adjustments */
+.simple-diff-container.with-sections .simple-diff-text {
+    padding: 0;
+}
+
+.simple-diff-container.with-sections [class^="section-"] {
+    margin: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Change indicators */
+.change-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.change-indicator.modified { background-color: #ffc107; }
+.change-indicator.added { background-color: #28a745; }
+.change-indicator.removed { background-color: #dc3545; }
+
+/* Job requirements styling */
+.requirements-header {
+    margin-bottom: 1.5rem;
+}
+
+.requirements-header h3 {
+    margin: 0;
+    color: var(--primary);
+    font-size: 1.3em;
+}
+
+.requirements-content {
+    padding: 1.5rem;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px var(--shadow);
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.requirements-content h4 {
+    color: var(--primary);
+    margin: 1.25rem 0 0.75rem;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.requirements-content h4:first-child {
+    margin-top: 0;
+}
+
+.requirements-list {
+    list-style-type: none;
+    padding-left: 1.25rem;
+    margin: 0.75rem 0 1.5rem;
+}
+
+.requirements-list li {
+    position: relative;
+    padding: 0.35rem 0;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.requirements-list li::before {
+    content: "•";
+    color: var(--primary);
+    position: absolute;
+    left: -1.25rem;
+    font-weight: bold;
+}
+
+.requirements-list li.no-requirements {
+    color: var(--text-light);
+    font-style: italic;
+}
+
+.requirements-list li.no-requirements::before {
+    content: "○";
+}
+
+.no-requirements {
+    color: var(--text-light);
+    font-style: italic;
+    padding: 1rem;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    margin: 1rem 0;
+    background: var(--background);
+}
+
+/* Add this at the end of your CSS file */
+
+/* Streaming components */
+.streaming-option {
+    margin: 15px 0;
+    padding: 10px;
+    background-color: var(--bg-light);
+    border-radius: 5px;
+    border-left: 4px solid var(--primary);
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding-left: 30px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox-container input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.checkmark {
+    position: absolute;
+    left: 0;
+    height: 20px;
+    width: 20px;
+    background-color: #eee;
+    border-radius: 3px;
+}
+
+.checkbox-container:hover input ~ .checkmark {
+    background-color: #ccc;
+}
+
+.checkbox-container input:checked ~ .checkmark {
+    background-color: var(--primary);
+}
+
+.checkmark:after {
+    content: "";
+    position: absolute;
+    display: none;
+}
+
+.checkbox-container input:checked ~ .checkmark:after {
+    display: block;
+}
+
+.checkbox-container .checkmark:after {
+    left: 7px;
+    top: 3px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.streaming-container {
+    margin: 15px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: var(--bg-light);
+}
+
+.streaming-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: var(--primary);
+    color: var(--text-light);
+}
+
+.streaming-header h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.streaming-status {
+    font-size: 0.85rem;
+    font-style: italic;
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.streaming-content {
+    padding: 15px;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+/* Animation for streaming */
+@keyframes blink {
+    0% { opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { opacity: 0.2; }
+}
+
+.streaming-status:after {
+    content: '...';
+    animation: blink 1.5s infinite;
+}
+
+/* Syntax highlighting for streamed content */
+.streaming-content .tex-command {
+    color: #0000cc;
+    font-weight: bold;
+}
+
+.streaming-content .tex-arg {
+    color: #006633;
+}
+
+.streaming-content .json-key {
+    color: #881391;
+    font-weight: bold;
+}
+
+.streaming-content .json-string {
+    color: #1a1aa6;
+}
+
+.streaming-content .json-number {
+    color: #098658;
+}
+
+.streaming-content .json-boolean {
+    color: #0070c1;
+}
+
+/* Add this with the other streaming components */
+.streaming-note {
+    margin: 10px 0;
+    padding: 10px 15px;
+    background-color: #f0f8ff;
+    border-radius: 5px;
+    border-left: 4px solid var(--primary);
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+.streaming-note p {
+    margin: 0;
+}
+
+/* Job requirements analysis display */
+.job-analysis .simple-diff-text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    white-space: pre-wrap;
+}
+
+.job-analysis .simple-diff-header-right {
+    background-color: #e9ecef;
+    font-weight: bold;
+}
+
+/* Style job requirement categories */
+.job-analysis .simple-diff-text {
+    counter-reset: category;
+}
+
+.job-analysis .simple-diff-text strong {
+    color: #2c5282;
+}
+
+/* Add spacing between categories */
+.job-analysis .simple-diff-text:empty {
+    display: block;
+    height: 1em;
+}
+
+/* Style bullet points */
+.job-analysis .simple-diff-text {
+    list-style-position: inside;
+}
+
+.job-analysis .simple-diff-text > * {
+    margin-bottom: 0.5em;
+}
+
+/* Add at the end of the file */
+
+/* Resume section styles */
+.section-name,
+.section-contact,
+.section-summary,
+.section-skills,
+.section-experience,
+.section-education,
+.section-professional,
+.section-publications {
+    margin: 1rem 0;
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+/* Different background colors for sections */
+.section-name { background-color: #e8f4f8; }
+.section-contact { background-color: #e8f8f5; }
+.section-summary { background-color: #f8f4e8; }
+.section-skills { background-color: #f4e8f8; }
+.section-experience { background-color: #f8e8e8; }
+.section-education { background-color: #e8f8e8; }
+.section-professional { background-color: #f0f0f8; }
+.section-publications { background-color: #f8f0f0; }
+
+/* Section headers */
+[class^="section-"] h2 {
+    color: var(--text);
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 0.5rem;
+}
+
+/* Changes highlighting */
+.text-change {
+    background-color: #fff3cd;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+}
+
+.text-addition {
+    background-color: #d4edda;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+}
+
+.text-removal {
+    background-color: #f8d7da;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    margin: 0 0.2rem;
+    text-decoration: line-through;
+}
+
+/* Split view adjustments */
+.simple-diff-container.with-sections .simple-diff-text {
+    padding: 0;
+}
+
+.simple-diff-container.with-sections [class^="section-"] {
+    margin: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Change indicators */
+.change-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.change-indicator.modified { background-color: #ffc107; }
+.change-indicator.added { background-color: #28a745; }
+.change-indicator.removed { background-color: #dc3545; }
+
+/* Job requirements styling */
+.requirements-header {
+    margin-bottom: 1.5rem;
+}
+
+.requirements-header h3 {
+    margin: 0;
+    color: var(--primary);
+    font-size: 1.3em;
+}
+
+.requirements-content {
+    padding: 1.5rem;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px var(--shadow);
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.requirements-content h4 {
+    color: var(--primary);
+    margin: 1.25rem 0 0.75rem;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.requirements-content h4:first-child {
+    margin-top: 0;
+}
+
+.requirements-list {
+    list-style-type: none;
+    padding-left: 1.25rem;
+    margin: 0.75rem 0 1.5rem;
+}
+
+.requirements-list li {
+    position: relative;
+    padding: 0.35rem 0;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.requirements-list li::before {
+    content: "•";
+    color: var(--primary);
+    position: absolute;
+    left: -1.25rem;
+    font-weight: bold;
+}
+
+.requirements-list li.no-requirements {
+    color: var(--text-light);
+    font-style: italic;
+}
+
+.requirements-list li.no-requirements::before {
+    content: "○";
+}
+
+.no-requirements {
+    color: var(--text-light);
+    font-style: italic;
+    padding: 1rem;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    margin: 1rem 0;
+    background: var(--background);
+}
+
+/* Requirements container */
+#requirementsList {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.requirements-content {
+    padding: 1.5rem;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px var(--shadow);
+    margin: 0 !important;
+}
+
+/* No requirements state */
+.no-requirements-container {
+    padding: 2rem;
+    text-align: center;
+    background: var(--background);
+    border-radius: var(--radius);
+    border: 1px dashed var(--border);
+}
+
+.requirements-suggestion {
+    color: var(--primary);
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+}
+
+.requirements-help {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+    color: var(--text);
+}
+
+.requirements-help li {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    background: rgba(67, 97, 238, 0.05);
+    border-radius: var(--radius);
+}
+
+/* Requirements categories */
+.requirements-content h4 {
+    color: var(--primary);
+    margin: 1.25rem 0 0.75rem;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.requirements-content h4:first-child {
+    margin-top: 0;
+}
+
+/* Requirements lists */
+.requirements-list {
+    list-style-type: none;
+    padding-left: 1.25rem;
+    margin: 0.75rem 0 1.5rem;
+}
+
+.requirements-list li {
+    position: relative;
+    padding: 0.35rem 0;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.requirements-list li::before {
+    content: "•";
+    color: var(--primary);
+    position: absolute;
+    left: -1.25rem;
+    font-weight: bold;
+}
+
+/* Empty state styling */
+.requirements-list li.no-requirements {
+    color: var (--text-light);
+    font-style: italic;
+    text-align: center;
+    padding: 1rem;
+}
+
+.requirements-list li.no-requirements::before {
+    content: "○";
+    color: var(--text-light);
+}
