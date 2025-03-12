@@ -109,7 +109,7 @@ const uploadMiddleware = (req, res, next) => {
 
 // Routes
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../views/index.html'));
+    res.sendFile(path.join(process.cwd(), 'views/index.html'));
 });
 
 // Handle form-urlencoded data for /stream-analyze
