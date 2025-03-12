@@ -2,14 +2,16 @@ import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
 import cors from 'cors';
 import { exec } from 'child_process';
 import MistralHelper from './mistralHelper.js';
+import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Determine dirname in a way that works in all environments
+const __dirname = process.env.NODE_ENV === 'test'
+  ? path.resolve('./src')
+  : path.resolve();
 
 export const app = express();
 let port = 3001;
@@ -20,14 +22,17 @@ const streamingSessions = {
   tailor: new Map()
 };
 
-// Check if pdflatex is installed
-exec('pdflatex --version', (error) => {
-    if (error) {
-        console.error('Error: pdflatex is not installed or not in PATH');
-        console.error('Please install TeX Live or MiKTeX and ensure pdflatex is available');
-        process.exit(1);
-    }
-});
+// Only check for pdflatex in non-test environment
+if (process.env.NODE_ENV !== 'test') {
+    // Check if pdflatex is installed
+    exec('pdflatex --version', (error) => {
+        if (error) {
+            console.error('Error: pdflatex is not installed or not in PATH');
+            console.error('Please install TeX Live or MiKTeX and ensure pdflatex is available');
+            process.exit(1);
+        }
+    });
+}
 
 // Function to try different ports if the current one is in use
 const startServer = (initialPort) => {
@@ -44,11 +49,14 @@ const startServer = (initialPort) => {
             port = initialPort;
             console.log(`Server running at http://localhost:${port}`);
         });
+    
+    return server;
 };
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/views', express.static(path.join(__dirname, '../views')));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -79,19 +87,74 @@ const upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
         if (path.extname(file.originalname) !== '.tex') {
-            return cb(new Error('Only .tex files are allowed'));
+            const error = new Error('Only .tex files are allowed');
+            return cb(error, false);
         }
         cb(null, true);
     }
 });
+
+// Wrapper for multer upload to handle file type validation
+const uploadMiddleware = (req, res, next) => {
+    upload.single('resumeFile')(req, res, (err) => {
+        if (err) {
+            return res.status(400).json({ error: err.message });
+        }
+        if (!req.file && req.method !== 'GET') {
+            return res.status(400).json({ error: 'Only .tex files are allowed' });
+        }
+        next();
+    });
+};
 
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../views/index.html'));
 });
 
+// Handle form-urlencoded data for /stream-analyze
+app.post('/stream-analyze', express.urlencoded({ extended: true }), (req, res) => {
+    try {
+        if (!req.body.jobDescription || !req.body.apiKey) {
+          return res.status(400).json({
+            error: 'Missing required fields',
+            details: 'Please provide job description and API key'
+          });
+        }
+
+        // Create a session ID
+        const newSessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
+        
+        // Store the session data without resume path
+        const sessionData = {
+          jobDescription: req.body.jobDescription,
+          apiKey: req.body.apiKey,
+          analyzePrompt: req.body.analyzePrompt,
+          resumePath: null, // No resume file required
+          clients: [],
+          isAnalyzing: false,
+          jobRequirements: null,
+          error: null
+        };
+        
+        console.log(`Creating new analysis session ${newSessionId} with data:`, sessionData);
+        streamingSessions.analyze.set(newSessionId, sessionData);
+        
+        // Return the session ID
+        const response = { sessionId: newSessionId };
+        console.log('Returning session response:', response);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({
+            error: 'Error setting up streaming session',
+            details: error.message
+        });
+    }
+});
+
 // Initial upload and analysis (non-streaming)
-app.post('/upload', upload.single('resumeFile'), async (req, res) => {
+app.post('/upload', uploadMiddleware, async (req, res) => {
     try {
         if (!req.file || !req.body.jobDescription || !req.body.apiKey) {
             return res.status(400).json({ 
@@ -150,45 +213,44 @@ app.post('/upload', upload.single('resumeFile'), async (req, res) => {
 });
 
 // Modified: Store streaming session data and return a session ID
-app.post('/stream-analyze', upload.single('resumeFile'), (req, res) => {
+app.post('/stream-analyze', (req, res) => {
     try {
-        if (!req.file || !req.body.jobDescription || !req.body.apiKey) {
-            return res.status(400).json({ 
-                error: 'Missing required fields',
-                details: 'Please provide resume file, job description, and API key'
-            });
+        if (!req.body.jobDescription || !req.body.apiKey) {
+          return res.status(400).json({
+            error: 'Missing required fields',
+            details: 'Please provide job description and API key'
+          });
         }
 
-        const { 
-            jobDescription, 
-            apiKey,
-            analyzePrompt
-        } = req.body;
-        
-        const resumePath = req.file.path;
-        
         // Create a session ID
-        const sessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
+        const newSessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
         
-        // Store the session data
-        streamingSessions.analyze.set(sessionId, {
-            jobDescription,
-            apiKey,
-            analyzePrompt,
-            resumePath,
-            clients: [],
-            isAnalyzing: false,
-            jobRequirements: null,
-            error: null
-        });
+        // Store the session data without resume path
+        const sessionData = {
+          jobDescription: req.body.jobDescription,
+          apiKey: req.body.apiKey,
+          analyzePrompt: req.body.analyzePrompt,
+          resumePath: null, // No resume file required
+          clients: [],
+          isAnalyzing: false,
+          jobRequirements: null,
+          error: null
+        };
+        
+        console.log(`Creating new analysis session ${newSessionId} with data:`, sessionData);
+        streamingSessions.analyze.set(newSessionId, sessionData);
+        
+        // Log all active sessions
+        console.log('Active sessions:', Array.from(streamingSessions.analyze.keys()));
         
         // Return the session ID
-        res.status(200).json({ sessionId });
-        
+        const response = { sessionId: newSessionId };
+        console.log('Returning session response:', response);
+        return res.status(200).json(response);
     } catch (error) {
         console.error('Error:', error);
-        res.status(500).json({ 
-            error: 'Error setting up streaming session', 
+        res.status(500).json({
+            error: 'Error setting up streaming session',
             details: error.message
         });
     }
@@ -199,10 +261,22 @@ app.get('/stream-analyze-events', async (req, res) => {
     const sessionId = req.query.sessionId;
     const session = streamingSessions.analyze.get(sessionId);
     
-    if (!sessionId || !session) {
-        res.status(400).send('Invalid or missing session ID');
-        return;
+    console.log(`Client connecting to session ${sessionId}`);
+    if (!sessionId) {
+      console.error('No session ID provided');
+      return res.status(400).json({
+        error: 'Missing session ID'
+      });
     }
+    
+    if (!session) {
+      console.error(`Session ${sessionId} not found. Active sessions:`, Array.from(streamingSessions.analyze.keys()));
+      return res.status(400).json({
+        error: 'Invalid session ID'
+      });
+    }
+    
+    console.log(`Session ${sessionId} found with ${session.clients.length} existing clients`);
 
     // Set up SSE headers
     res.writeHead(200, {
@@ -215,7 +289,7 @@ app.get('/stream-analyze-events', async (req, res) => {
     session.clients.push(res);
 
     // Handle client disconnect
-    req.on('close', () => {
+    const handleDisconnect = () => {
         if (streamingSessions.analyze.has(sessionId)) {
             console.log(`Client disconnected from analysis session ${sessionId}`);
             const currentSession = streamingSessions.analyze.get(sessionId);
@@ -223,10 +297,32 @@ app.get('/stream-analyze-events', async (req, res) => {
             
             // Clean up session if no clients and no results
             if (currentSession.clients.length === 0 && !currentSession.jobRequirements && !currentSession.error) {
-                streamingSessions.analyze.delete(sessionId);
+                setTimeout(() => {
+                    if (streamingSessions.analyze.has(sessionId)) {
+                        streamingSessions.analyze.delete(sessionId);
+                    }
+                }, 1000); // Delay cleanup to handle reconnections
             }
         }
+    };
+
+    // Keep connection alive
+    res.on('close', handleDisconnect);
+    res.on('finish', handleDisconnect);
+    res.on('error', (err) => {
+        console.error(`Connection error in session ${sessionId}:`, err);
+        handleDisconnect();
     });
+
+    // Send heartbeat every 30 seconds
+    const heartbeatInterval = setInterval(() => {
+        if (!res.writableEnded) {
+            res.write(':heartbeat\n\n');
+        }
+    }, 30000);
+
+    // Clean up interval on disconnect
+    res.on('close', () => clearInterval(heartbeatInterval));
 
     // If analysis is already complete, send the results
     if (session.jobRequirements) {
@@ -290,21 +386,28 @@ app.get('/stream-analyze-events', async (req, res) => {
 });
 
 // Modified: Store streaming session for resume tailoring
-app.post('/stream-tailor', express.json(), (req, res) => {
+app.post('/stream-tailor', uploadMiddleware, (req, res) => {
     try {
-        if (!req.body.resumeContent || !req.body.jobRequirements || !req.body.apiKey) {
-            return res.status(400).json({ 
+        console.log('Starting /stream-tailor request');
+        console.log('Request body:', req.body);
+        console.log('Uploaded file:', req.file);
+
+        if (!req.file || !req.body.requirements || !req.body.apiKey) {
+            return res.status(400).json({
                 error: 'Missing required fields',
-                details: 'Please provide resume content, job requirements, and API key'
+                details: 'Please provide resume file, requirements, and API key'
             });
         }
 
-        const { 
-            resumeContent,
-            jobRequirements,
+        const {
+            requirements,
             apiKey,
-            tailorPrompt 
+            tailorPrompt
         } = req.body;
+
+        // Read the uploaded file
+        const resumeContent = fs.readFileSync(req.file.path, 'utf-8');
+        console.log('Resume content loaded from file');
         
         // Create a session ID
         const sessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
@@ -312,7 +415,7 @@ app.post('/stream-tailor', express.json(), (req, res) => {
         // Store the session data
         streamingSessions.tailor.set(sessionId, {
             resumeContent,
-            jobRequirements,
+            jobRequirements: requirements,
             apiKey,
             tailorPrompt,
             clients: [],
@@ -321,13 +424,33 @@ app.post('/stream-tailor', express.json(), (req, res) => {
             error: null
         });
         
-        // Return the session ID
-        res.status(200).json({ sessionId });
+        // Return the session ID with success message
+        res.status(200).json({
+            sessionId,
+            message: 'Tailoring session started successfully'
+        });
         
     } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ 
-            error: 'Error setting up tailoring session', 
+        console.error('Error in /stream-tailor:', error);
+        
+        // Handle file type validation and multer errors
+        if (error.status === 400 || error.message === 'Only .tex files are allowed' ||
+            error instanceof multer.MulterError) {
+            return res.status(400).json({
+                error: 'Invalid file type. Only .tex files are allowed'
+            });
+        }
+
+        // Handle other multer errors
+        if (error instanceof multer.MulterError) {
+            return res.status(400).json({
+                error: error.message
+            });
+        }
+
+        // Handle other errors
+        res.status(500).json({
+            error: 'Error setting up tailoring session',
             details: error.message
         });
     }
@@ -343,6 +466,7 @@ app.get('/stream-tailor-events', (req, res) => {
     // Extract session ID from query params
     const sessionId = req.query.sessionId;
     if (!sessionId || !streamingSessions.tailor.has(sessionId)) {
+        res.status(400);
         res.write(`event: error\ndata: ${JSON.stringify({ error: 'Invalid or expired session' })}\n\n`);
         res.end();
         return;
@@ -351,10 +475,12 @@ app.get('/stream-tailor-events', (req, res) => {
     const session = streamingSessions.tailor.get(sessionId);
     
     // Add this client to the session
+    console.log(`New client connected to tailoring session ${sessionId}`);
     session.clients.push(res);
     
     // If already tailored, send the cached results immediately
     if (session.modifiedContent) {
+        console.log(`Sending cached results to client for session ${sessionId}`);
         res.write(`event: complete\ndata: ${JSON.stringify({ modifiedContent: session.modifiedContent })}\n\n`);
         res.end();
         return;
@@ -362,6 +488,7 @@ app.get('/stream-tailor-events', (req, res) => {
     
     // If an error occurred, send it
     if (session.error) {
+        console.log(`Sending error to client for session ${sessionId}:`, session.error);
         res.write(`event: error\ndata: ${JSON.stringify({ error: session.error })}\n\n`);
         res.end();
         return;
@@ -373,10 +500,14 @@ app.get('/stream-tailor-events', (req, res) => {
         
         // Send initial status to all clients
         const initialStatus = `event: status\ndata: ${JSON.stringify({ status: 'tailoring', message: 'Starting resume tailoring...' })}\n\n`;
-        session.clients.forEach(client => client.write(initialStatus));
+        session.clients.forEach(client => {
+            console.log(`Writing initial status to client`);
+            client.write(initialStatus);
+        });
         
         // Initialize Mistral helper
         const mistral = new MistralHelper(session.apiKey, { tailorPrompt: session.tailorPrompt });
+        console.log('Mistral helper initialized for session', sessionId);
         
         // Start streaming tailoring
         mistral.streamTailorResume(
@@ -426,17 +557,37 @@ app.get('/stream-tailor-events', (req, res) => {
     }
     
     // Handle client disconnect
-    req.on('close', () => {
+    const handleDisconnect = () => {
+        console.log(`Client disconnected from tailoring session ${sessionId}`);
         if (streamingSessions.tailor.has(sessionId)) {
             const session = streamingSessions.tailor.get(sessionId);
             session.clients = session.clients.filter(client => client !== res);
             
             // If no clients left, clean up session
             if (session.clients.length === 0 && !session.modifiedContent && !session.error) {
+                console.log(`Cleaning up tailoring session ${sessionId} with no clients`);
                 streamingSessions.tailor.delete(sessionId);
             }
         }
+    };
+
+    // Set up disconnect handlers
+    req.on('close', handleDisconnect);
+    req.on('end', handleDisconnect);
+    req.on('error', (err) => {
+        console.error(`Connection error in tailoring session ${sessionId}:`, err);
+        handleDisconnect();
     });
+
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+        if (!res.writableEnded) {
+            res.write(':heartbeat\n\n');
+        }
+    }, 30000);
+
+    // Clean up interval on disconnect
+    req.on('close', () => clearInterval(heartbeatInterval));
 });
 
 // Generate PDF from modified content
@@ -465,18 +616,36 @@ app.post('/generate-pdf', async (req, res) => {
         const pdfFilename = path.basename(pdfPath);
         console.log('PDF filename:', pdfFilename);
         
-        res.json({
-            message: 'PDF generated successfully',
-            pdfPath: pdfFilename,
-            latexLog: logContent
+        res.set('Content-Type', 'application/pdf');
+        res.sendFile(pdfPath, (err) => {
+            if (err) {
+                console.error('Error sending PDF:', err);
+                return res.status(500).json({
+                    error: 'Error sending PDF',
+                    details: err.message
+                });
+            }
+            
+            // Clean up the generated files
+            fs.unlinkSync(texPath);
+            fs.unlinkSync(pdfPath);
         });
     } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ 
-            error: 'Error generating PDF', 
-            details: error.message,
-            latexLog: error.latexLog
-        });
+        if (error.latexLog) {
+            // LaTeX compilation error - return 400
+            res.status(400).json({
+                error: 'LaTeX compilation error',
+                details: error.message,
+                latexLog: error.latexLog
+            });
+        } else {
+            // Other errors - return 500
+            console.error('Error:', error);
+            res.status(500).json({
+                error: 'Error generating PDF',
+                details: error.message
+            });
+        }
     }
 });
 
@@ -591,38 +760,46 @@ function extractLatexError(logContent) {
 }
 
 // Clean up old files periodically (keep files for 24 hours)
-function cleanupOldFiles() {
+export async function cleanupOldFiles() {
     const uploadsDir = path.join(__dirname, '../uploads');
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    // Use a shorter timeout in test environment
+    const maxAge = process.env.NODE_ENV === 'test' ? 100 : 24 * 60 * 60 * 1000;
     
-    fs.readdir(uploadsDir, (err, files) => {
-        if (err) {
-            console.error('Error reading uploads directory:', err);
+    try {
+        // Ensure uploads directory exists
+        if (!fs.existsSync(uploadsDir)) {
+            await fs.promises.mkdir(uploadsDir, { recursive: true });
             return;
         }
-        
+
+        const files = await fs.promises.readdir(uploadsDir);
         const now = Date.now();
-        files.forEach(file => {
+        
+        for (const file of files) {
             const filePath = path.join(uploadsDir, file);
-            fs.stat(filePath, (err, stats) => {
-                if (err) {
-                    console.error(`Error getting stats for file ${file}:`, err);
-                    return;
+            try {
+                // Skip if it's a directory
+                const stats = await fs.promises.lstat(filePath);
+                if (stats.isDirectory()) {
+                    continue;
                 }
-                
+
                 const age = now - stats.mtime.getTime();
                 if (age > maxAge) {
-                    fs.unlink(filePath, err => {
-                        if (err) {
-                            console.error(`Error deleting old file ${file}:`, err);
-                        } else {
-                            console.log(`Deleted old file: ${file}`);
-                        }
-                    });
+                    try {
+                        await fs.promises.unlink(filePath);
+                        console.log(`Deleted old file: ${file}`);
+                    } catch (err) {
+                        console.error(`Failed to delete old file ${file}:`, err);
+                    }
                 }
-            });
-        });
-    });
+            } catch (err) {
+                console.error(`Error processing file ${file}:`, err);
+            }
+        }
+    } catch (err) {
+        console.error('Error reading uploads directory:', err);
+    }
 }
 
 // Run cleanup every hour
@@ -632,3 +809,14 @@ cleanupOldFiles();
 
 // Start server with port fallback
 startServer(port);
+
+// Export server starter for testing with explicit port
+export const startServerForTesting = () => {
+  console.log('Starting test server on port 3002');
+  return startServer(3002);
+};
+
+// Only start server if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+    startServer(port);
+}

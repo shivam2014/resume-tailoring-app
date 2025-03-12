@@ -123,10 +123,21 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             .replace(/\\hfill/g, ' - ')
             .replace(/\\vspace\{[^{}]*\}/g, '\n')
             .replace(/\\\\/g, '\n')
-            .replace(/\\,/g, ' ')
-            .replace(/\s*--\s*/g, ' - ')
-            .replace(/\{|\}/g, '')
-            .replace(/[ \t]+/g, ' ');
+            // Special handling of LaTeX escapes
+            .replace(/\\([\%\$\&\_\#\{\}])/g, '$1')  // First handle special character escapes
+            .replace(/\\\\/g, '\n')                   // Then handle double backslash
+            .replace(/\\,/g, ' ')                     // Handle \, command
+            // Handle LaTeX commands with braces
+            .replace(/\\text(?:bf|it|rm)\{([^{}]*)\}/g, '$1')
+            .replace(/\\emph\{([^{}]*)\}/g, '$1')
+            .replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, '$1')
+            // Cleanup
+            .replace(/\\[a-zA-Z]+/g, '')    // Remove remaining LaTeX commands
+            .replace(/\\/g, '')             // Remove any remaining single backslashes
+            .replace(/\{|\}/g, '')          // Remove braces
+            .replace(/\s*--\s*/g, ' - ')    // Standardize dashes
+            .replace(/[ \t]+/g, ' ')        // Normalize whitespace
+            .trim();
 
         // Final cleanup and formatting
         text = text
@@ -243,85 +254,75 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
      * @param {function} onError - Callback function to handle errors
      */
     async streamAnalyzeJobDescription(description, onChunk, onComplete, onError) {
-        const prompt = this.analyzePrompt.replace('[JOB_DESCRIPTION]', description);
+        // Create a system message to enforce JSON format
+        const systemMessage = {
+            role: "system",
+            content: "You MUST respond with a complete, well-formed JSON object ONLY. No other text allowed. Begin your response with '{' and end with '}'."
+        };
+
+        // Use the job analysis prompt as the user message
+        const userMessage = {
+            role: "user",
+            content: this.analyzePrompt.replace('[JOB_DESCRIPTION]', description)
+        };
 
         try {
             const response = await this.client.post('/chat/completions', {
-                model: "mistral-small",
-                messages: [{
-                    role: "user",
-                    content: prompt + "\nReturn a valid JSON object only, with no additional text."
-                }],
-                stream: true
+                model: "mistral-small-latest",
+                messages: [systemMessage, userMessage],
+                stream: true,
+                temperature: 0.1
             }, {
                 responseType: 'stream'
             });
 
-            let fullResponse = '';
-            let jsonBuffer = '';
             const decoder = new TextDecoder('utf-8');
-            
-            let isCollectingJson = false;
-            let bracketCount = 0;
-            let inString = false;
-            let lastChar = '';
+            let buffer = '';
+            let jsonBuffer = '';
+            let fullResponse = '';
+            let foundStart = false;
 
-            console.log('Starting job analysis stream...'); // Simplified initial log
+            const processBuffer = () => {
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop() || ''; // Keep last partial chunk
 
-            response.data.on('data', (chunk) => {
-                const text = decoder.decode(chunk);
-                const lines = text.split('\n').filter(line => line.trim() !== '');
-                
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(5).trim();
-                        if (data === '[DONE]') continue;
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+                    
+                    const data = trimmedLine.slice(5);
+                    if (data === '[DONE]') continue;
+                    
+                    try {
+                        const json = JSON.parse(data);
+                        const content = json.choices?.[0]?.delta?.content || '';
                         
-                        try {
-                            const json = JSON.parse(data);
-                            const content = json.choices?.[0]?.delta?.content || '';
-                            
-                            if (content) {
-                                fullResponse += content;
-
-                                // Process each character for accurate JSON structure tracking
-                                for (let i = 0; i < content.length; i++) {
-                                    const char = content[i];
-                                    
-                                    // Handle string state
-                                    if (char === '"' && lastChar !== '\\') {
-                                        inString = !inString;
-                                    }
-                                    
-                                    // Only count braces when not in a string
-                                    if (!inString) {
-                                        if (char === '{') {
-                                            isCollectingJson = true;
-                                            bracketCount++;
-                                        } else if (char === '}') {
-                                            bracketCount--;
-                                            if (bracketCount === 0) {
-                                                console.log('Completed JSON structure detected'); // Log when a complete JSON is found
-                                            }
-                                        }
-                                    }
-                                    
-                                    lastChar = char;
-                                }
-
-                                if (isCollectingJson) {
-                                    jsonBuffer += content;
-                                    onChunk(content);
-                                }
+                        if (content) {
+                            // Handle JSON content
+                            if (!foundStart && content.includes('{')) {
+                                foundStart = true;
+                                const startIndex = content.indexOf('{');
+                                jsonBuffer = content.slice(startIndex);
+                            } else if (foundStart) {
+                                jsonBuffer += content;
                             }
-                        } catch (e) {
-                            // Only log if we're already collecting JSON
-                            if (isCollectingJson) {
-                                console.warn('Warning: Invalid JSON chunk received while collecting JSON');
+
+                            fullResponse += content;
+                            
+                            // Only send content after we've found a valid JSON start
+                            if (foundStart) {
+                                onChunk(content);
                             }
                         }
+                    } catch (e) {
+                        console.warn('Warning: Invalid chunk received:', e.message);
                     }
                 }
+            };
+
+            response.data.on('data', (chunk) => {
+                buffer += decoder.decode(chunk);
+                processBuffer();
             });
 
             response.data.on('end', () => {
@@ -424,54 +425,85 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
 
         try {
             const response = await this.client.post('/chat/completions', {
-                model: "mistral-small",
+                model: "mistral-small-latest",
                 messages: [{
                     role: "user",
                     content: prompt
                 }],
-                stream: true // Enable streaming
+                stream: true,
+                temperature: 0.1 // Add temperature for more stable responses
             }, {
                 responseType: 'stream'
             });
 
-            let fullResponse = '';
             const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let accumulatedResponse = '';
 
-            // Process the stream
-            response.data.on('data', (chunk) => {
-                const text = decoder.decode(chunk);
-                
-                // The stream format is "data: {...}\n\n"
-                const lines = text.split('\n\n');
-                
+            const processBuffer = () => {
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop() || ''; // Keep last partial chunk
+
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(5); // Remove 'data: '
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+                    
+                    const data = trimmedLine.slice(5);
+                    if (data === '[DONE]') continue;
+                    
+                    try {
+                        const json = JSON.parse(data);
+                        const content = json.choices?.[0]?.delta?.content || '';
                         
-                        // Check if it's the [DONE] marker
-                        if (data.trim() === '[DONE]') continue;
-                        
-                        try {
-                            const json = JSON.parse(data);
-                            const content = json.choices?.[0]?.delta?.content || '';
-                            if (content) {
-                                fullResponse += content;
-                                onChunk(content);
-                            }
-                        } catch (e) {
-                            // Skip if there's an error parsing this chunk
-                            console.warn('Error parsing chunk:', e);
+                        if (content) {
+                            accumulatedResponse += content;
+                            onChunk(content);
                         }
+                    } catch (e) {
+                        console.warn('Warning: Invalid chunk received:', e.message);
                     }
                 }
+            };
+
+            response.data.on('data', (chunk) => {
+                buffer += decoder.decode(chunk);
+                processBuffer();
             });
 
             response.data.on('end', () => {
-                onComplete(fullResponse);
+                // Process any remaining data in the buffer
+                if (buffer.trim()) {
+                    const data = buffer.trim().slice(5);
+                    try {
+                        if (data && data !== '[DONE]') {
+                            const json = JSON.parse(data);
+                            const content = json.choices?.[0]?.delta?.content || '';
+                            if (content) {
+                                accumulatedResponse += content;
+                                onChunk(content);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Warning: Invalid final chunk:', e.message);
+                    }
+                }
+
+                if (!accumulatedResponse.trim()) {
+                    onError('No valid content received from the API');
+                    return;
+                }
+                onComplete(accumulatedResponse);
             });
 
             response.data.on('error', (err) => {
                 onError('Stream error: ' + err.message);
+            });
+
+            // Cleanup on errors
+            response.data.on('close', () => {
+                if (!accumulatedResponse.trim()) {
+                    onError('Stream closed without receiving valid content');
+                }
             });
 
         } catch (error) {

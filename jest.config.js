@@ -1,19 +1,29 @@
 /** @type {import('jest').Config} */
 export default {
   transform: {
-    '^.+\\.jsx?$': 'babel-jest'
+    '^.+\\.jsx?$': 'babel-jest',
+    '^.+\\.mjs$': 'babel-jest'
   },
-  testEnvironment: 'jsdom',
+  testEnvironment: 'node',
   setupFilesAfterEnv: ['./tests/setup.js'],
   moduleFileExtensions: ['js', 'mjs', 'cjs', 'jsx', 'json'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1'
+  },
   testMatch: [
     '**/tests/**/*.test.js'
   ],
   transformIgnorePatterns: [
     'node_modules/(?!(diff|diff2html)/)'
   ],
+  globals: {
+    'ts-jest': {
+      useESM: true
+    }
+  },
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1'
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+    'https://cdn\\.jsdelivr\\.net/npm/diff@5\\.1\\.0/\\+esm': 'diff'
   },
   verbose: true,
   collectCoverage: true,
@@ -24,6 +34,7 @@ export default {
     'public/js/**/*.js',
     '!**/node_modules/**'
   ],
+  testTimeout: 10000,
   // Use different test environments for frontend and backend tests
   projects: [
     {

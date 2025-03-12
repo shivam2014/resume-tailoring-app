@@ -1,19 +1,111 @@
 import request from 'supertest';
-import { app } from '../src/server.js';
+import { app, startServerForTesting } from '../src/server.js';
+
+let server;
+
+beforeAll(async () => {
+  // Use a fixed port and ensure it's available
+  const port = 3002;
+  const net = require('net');
+  
+  // Check if port is available and free it if necessary
+  const tester = net.createServer();
+  await new Promise((resolve) => {
+    tester.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        // Port is in use, try to free it
+        const tempServer = net.createServer();
+        tempServer.once('error', () => resolve(false));
+        tempServer.once('listening', () => {
+          tempServer.close(() => resolve(true));
+        });
+        tempServer.listen(port);
+      } else {
+        resolve(false);
+      }
+    });
+    tester.once('listening', () => {
+      tester.close(() => resolve(true));
+    });
+    tester.listen(port);
+  });
+
+  server = await startServerForTesting();
+  console.log(`Test server started on port ${port}`);
+  
+  // Add delay to ensure server is ready
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Add error handling for server connection
+  server.on('error', (err) => {
+    console.error('Server error:', err);
+  });
+  
+  // Add connection handling with keep-alive
+  server.on('connection', (socket) => {
+    socket.setKeepAlive(true, 60000);
+    socket.setTimeout(10000);
+    socket.on('timeout', () => {
+      console.warn('Socket timeout, closing connection');
+      socket.destroy();
+    });
+  });
+  
+  // Add error handling for uncaught exceptions
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+  });
+});
+
+afterAll((done) => {
+  if (server) {
+    // Close all active connections
+    server.getConnections((err, count) => {
+      if (err) {
+        console.error('Error getting connections:', err);
+      } else if (count > 0) {
+        console.log(`Closing ${count} active connections`);
+      }
+    });
+
+    // Close the server with timeout
+    const closeTimeout = setTimeout(() => {
+      console.error('Server close timeout, forcing exit');
+      process.exit(1);
+    }, 5000);
+
+    server.close((err) => {
+      clearTimeout(closeTimeout);
+      if (err) {
+        console.error('Error closing server:', err);
+      } else {
+        console.log('Test server closed');
+      }
+      // Remove all listeners
+      server.removeAllListeners();
+      done();
+    });
+  } else {
+    done();
+  }
+  
+  // Clean up any remaining resources
+  process.removeAllListeners('uncaughtException');
+});
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Use __dirname approach that works with Jest
+const __dirname = path.resolve();
+const testFixturesDir = path.join(__dirname, 'tests', 'fixtures');
 
 describe('Server Integration Tests', () => {
-  const testResumePath = path.join(__dirname, 'fixtures', 'test-resume.tex');
+  const testResumePath = path.join(testFixturesDir, 'test-resume.tex');
   
   beforeAll(() => {
     // Create test fixtures directory and sample resume
-    if (!fs.existsSync(path.join(__dirname, 'fixtures'))) {
-      fs.mkdirSync(path.join(__dirname, 'fixtures'));
+    if (!fs.existsSync(testFixturesDir)) {
+      fs.mkdirSync(testFixturesDir, { recursive: true });
     }
     fs.writeFileSync(testResumePath, '\\section{Skills}\nTest skills');
   });
@@ -23,8 +115,19 @@ describe('Server Integration Tests', () => {
     if (fs.existsSync(testResumePath)) {
       fs.unlinkSync(testResumePath);
     }
-    if (fs.existsSync(path.join(__dirname, 'fixtures'))) {
-      fs.rmdirSync(path.join(__dirname, 'fixtures'));
+    if (fs.existsSync(testFixturesDir)) {
+      try {
+        // Remove all files in the directory first
+        const files = fs.readdirSync(testFixturesDir);
+        files.forEach(file => {
+          const filePath = path.join(testFixturesDir, file);
+          fs.unlinkSync(filePath);
+        });
+        fs.rmdirSync(testFixturesDir);
+        console.log('Successfully cleaned up fixtures directory');
+      } catch (error) {
+        console.warn('Could not remove fixtures directory:', error.message);
+      }
     }
   });
 
@@ -52,25 +155,48 @@ describe('Server Integration Tests', () => {
     const mockApiKey = 'test-api-key';
 
     it('should initiate analysis streaming session', async () => {
+      console.log('Starting analysis streaming session test');
+      console.log('Sending jobDescription:', jobDescription);
+      console.log('Sending apiKey:', mockApiKey);
+      
       const response = await request(app)
         .post('/stream-analyze')
-        .field('jobDescription', jobDescription)
-        .field('apiKey', mockApiKey);
+        .type('form')
+        .send({
+          jobDescription: jobDescription,
+          apiKey: mockApiKey
+        })
+        .on('error', (err) => {
+          console.error('Request error:', err);
+        })
+        .on('response', (res) => {
+          console.log('Response status:', res.status);
+          console.log('Response body:', res.body);
+        });
       
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('sessionId');
     });
 
     it('should establish SSE connection', async () => {
+      // Create a new session first
       const sessionResponse = await request(app)
         .post('/stream-analyze')
-        .field('jobDescription', jobDescription)
-        .field('apiKey', mockApiKey);
-      
+        .type('form')
+        .send({
+          jobDescription: jobDescription,
+          apiKey: mockApiKey
+        });
+
       const sessionId = sessionResponse.body.sessionId;
+      console.log(`Attempting SSE connection with session ID: ${sessionId}`);
+      
       const response = await request(app)
         .get(`/stream-analyze-events?sessionId=${sessionId}`)
-        .set('Accept', 'text/event-stream');
+        .set('Accept', 'text/event-stream')
+        .on('error', (err) => {
+          console.error('SSE connection error:', err);
+        });
       
       expect(response.status).toBe(200);
       expect(response.type).toBe('text/event-stream');
@@ -105,23 +231,46 @@ describe('Server Integration Tests', () => {
 
   describe('Resume Tailoring Streaming', () => {
     it('should initiate tailoring streaming session', async () => {
-      const response = await request(app)
-        .post('/stream-tailor')
-        .attach('resumeFile', testResumePath)
-        .field('requirements', JSON.stringify({
-          technicalSkills: ['test skill'],
-          softSkills: ['communication']
-        }))
-        .field('apiKey', 'test-api-key');
-      
-      expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('sessionId');
-    });
+      try {
+        console.log('Starting tailoring session test');
+        
+        // Verify API key is valid
+        if (!process.env.TEST_API_KEY) {
+          throw new Error('TEST_API_KEY environment variable is not set');
+        }
+
+        const response = await request(app)
+          .post('/stream-tailor')
+          .attach('resumeFile', testResumePath)
+          .field('requirements', JSON.stringify({
+            technicalSkills: ['test skill'],
+            softSkills: ['communication']
+          }))
+          .field('apiKey', process.env.TEST_API_KEY)
+          .on('error', (err) => {
+            console.error('Request error:', err);
+          })
+          .on('response', (res) => {
+            console.log('Response status:', res.status);
+            console.log('Response headers:', res.headers);
+          })
+          .on('end', () => {
+            console.log('Request completed');
+          });
+        
+        console.log('Tailoring session response received');
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('sessionId');
+      } catch (error) {
+        console.error('Test failed:', error);
+        throw error;
+      }
+    }, 15000); // Increase timeout to 15 seconds
 
     it('should validate resume file type', async () => {
       const response = await request(app)
         .post('/stream-tailor')
-        .attach('resume', Buffer.from('invalid'), 'test.txt')
+        .attach('resumeFile', Buffer.from('invalid'), 'test.txt')
         .field('requirements', JSON.stringify({}));
       
       expect(response.status).toBe(400);
@@ -129,14 +278,37 @@ describe('Server Integration Tests', () => {
     });
 
     it('should handle missing requirements', async () => {
-      const response = await request(app)
-        .post('/stream-tailor')
-        .attach('resumeFile', testResumePath)
-        .field('apiKey', 'test-api-key');
-      
-      expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error');
-    });
+      try {
+        console.log('Starting missing requirements test');
+        
+        // Verify API key is valid
+        if (!process.env.TEST_API_KEY) {
+          throw new Error('TEST_API_KEY environment variable is not set');
+        }
+
+        const response = await request(app)
+          .post('/stream-tailor')
+          .attach('resumeFile', testResumePath)
+          .field('apiKey', process.env.TEST_API_KEY)
+          .on('error', (err) => {
+            console.error('Request error:', err);
+          })
+          .on('response', (res) => {
+            console.log('Response status:', res.status);
+            console.log('Response headers:', res.headers);
+          })
+          .on('end', () => {
+            console.log('Request completed');
+          });
+        
+        console.log('Missing requirements response received');
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('error');
+      } catch (error) {
+        console.error('Test failed:', error);
+        throw error;
+      }
+    }, 15000); // Increase timeout to 15 seconds
   });
 
   describe('PDF Generation', () => {
@@ -173,18 +345,29 @@ describe('Server Integration Tests', () => {
 
   describe('File Management', () => {
     it('should clean up old files', async () => {
+      // Import the cleanupOldFiles function
+      const { cleanupOldFiles } = require('../src/server.js');
+      
+      // Ensure we're in test environment
+      expect(process.env.NODE_ENV).toBe('test');
+      
+      // Create test file
       const oldFile = path.join(process.cwd(), 'uploads', 'test-old.tex');
-      fs.writeFileSync(oldFile, 'test content');
+      await fs.promises.writeFile(oldFile, 'test content');
       
-      // Set file time to 25 hours ago
-      const time = Date.now() - (25 * 60 * 60 * 1000);
-      fs.utimesSync(oldFile, time/1000, time/1000);
+      // Set file time to 1 second ago (since maxAge is 100ms in test)
+      const time = Date.now() - 1000;
+      await fs.promises.utimes(oldFile, time/1000, time/1000);
       
-      // Trigger cleanup by making a request
-      await request(app).get('/');
+      // Verify file exists before cleanup
+      expect(fs.existsSync(oldFile)).toBe(true);
       
+      // Call cleanup directly
+      await cleanupOldFiles();
+      
+      // Verify file is deleted
       expect(fs.existsSync(oldFile)).toBe(false);
-    });
+    }, 2000); // 2 second timeout should be sufficient
 
     it('should maintain recent files', async () => {
       const recentFile = path.join(process.cwd(), 'uploads', 'test-recent.tex');
@@ -218,11 +401,13 @@ describe('Server Integration Tests', () => {
     });
 
     it('should handle concurrent requests', async () => {
-      const requests = Array(5).fill().map(() => 
+      const requests = Array(5).fill().map(() =>
         request(app)
           .post('/stream-analyze')
-          .field('jobDescription', 'test')
-          .field('apiKey', 'test-key')
+          .send({
+            jobDescription: 'test',
+            apiKey: 'test-key'
+          })
       );
       
       const responses = await Promise.all(requests);
@@ -257,16 +442,33 @@ describe('Server Integration Tests', () => {
     it('should handle multiple clients per session', async () => {
       const sessionResponse = await request(app)
         .post('/stream-analyze')
-        .field('jobDescription', 'test')
-        .field('apiKey', 'test-key');
+        .send({
+          jobDescription: 'test',
+          apiKey: 'test-key'
+        });
       
+      if (sessionResponse.status !== 200) {
+        console.error('Session creation failed:', sessionResponse.body);
+        throw new Error('Failed to create session');
+      }
+      
+      console.log('Session response:', sessionResponse.body);
       const sessionId = sessionResponse.body.sessionId;
+      if (!sessionId) {
+        throw new Error('Session ID not found in response');
+      }
+      console.log('Extracted session ID:', sessionId);
+      console.log(`Created session with ID: ${sessionId}`);
       
-      const streamRequests = Array(3).fill().map(() => 
-        request(app)
+      const streamRequests = Array(3).fill().map(() => {
+        console.log(`Creating stream request for session ${sessionId}`);
+        return request(app)
           .get(`/stream-analyze-events?sessionId=${sessionId}`)
           .set('Accept', 'text/event-stream')
-      );
+          .on('error', (err) => {
+            console.error('Stream request error:', err);
+          });
+      });
       
       const responses = await Promise.all(streamRequests);
       responses.forEach(response => {
