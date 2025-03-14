@@ -53,124 +53,82 @@ async function initDiff2Html() {
 export function extractTextFromLatex(latexCode) {
     if (!latexCode) return '';
     
-    // Initialize sections object
-    const sections = {
-        name: '',
-        contact: '',
-        summary: '',
-        skills: [],
-        experience: [],
-        education: [],
-        professionalDevelopment: [],
-        publications: []
-    };
-    
-    let text = latexCode;
-    
-    // Remove comments and preamble
-    text = text.replace(/%.*/g, '');
-    const documentMatch = text.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
-    if (documentMatch && documentMatch[1]) {
-        text = documentMatch[1];
+    // Initialize worker if not already created
+    if (!window.latexWorker) {
+        window.latexWorker = new Worker('/js/latexWorker.js');
     }
-    
-    // Extract name
-    const namePattern = /\\centerline\{[^}]*\\fontfamily\{[^}]*\}[^}]*\\textbf\{[^}]*\\fontsize\{\d+\.\d+\}\{\d+\}\\selectfont\\textls\[\d+\]\{([A-Z])\}[^}]*\\fontsize\{\d+\.\d+\}\{\d+\}\\selectfont\\textls\[\d+\]\{([A-Za-z]+)\}[^}]*\\fontsize\{\d+\.\d+\}\{\d+\}\\selectfont\\textls\[\d+\]\{([A-Z])\}[^}]*\\fontsize\{\d+\.\d+\}\{\d+\}\\selectfont\\textls\[\d+\]\{([A-Za-z]+)\}[^}]*\}\}/;
-    const nameMatch = text.match(namePattern);
-    if (nameMatch) {
-        sections.name = `${nameMatch[1]}${nameMatch[2]} ${nameMatch[3]}${nameMatch[4]}`;
+
+    return new Promise((resolve, reject) => {
+        // Send LaTeX code to worker
+        window.latexWorker.postMessage(latexCode);
+
+        // Handle worker response
+        window.latexWorker.onmessage = function(event) {
+            if (event.data.status === 'error') {
+                reject(new Error(event.data.error));
+                return;
+            }
+
+            // Convert AST to readable text
+            const ast = event.data.ast;
+            const text = astToString(ast);
+            resolve(text);
+        };
+
+        // Handle worker errors
+        window.latexWorker.onerror = function(error) {
+            reject(error);
+        };
+    });
+}
+
+// Helper function to convert AST to readable text
+function astToString(node) {
+    if (typeof node === 'string') {
+        return node;
     }
-    
-    // Extract contact info
-    const contactPattern = /\\centerline\{([^}]+)\}/;
-    const contactMatch = text.match(contactPattern);
-    if (contactMatch) {
-        sections.contact = contactMatch[1]
-            .replace(/\\href\{mailto:([^}]+)\}\{([^}]+)\}/g, '$2')
-            .replace(/\\href\{([^}]+)\}\{([^}]+)\}/g, '$2')
-            .replace(/\s*\|\s*/g, ' | ')
-            .trim();
+
+    if (Array.isArray(node)) {
+        return node.map(astToString).join('');
     }
-    
-    // Extract summary (text between contact info and first section)
-    const summaryPattern = /\\centerline\{[^}]+\}\s*(?:\\vspace\{[^}]*\}\s*)*\n\s*(.*?)\\section/s;
-    const summaryMatch = text.match(summaryPattern);
-    if (summaryMatch) {
-        sections.summary = summaryMatch[1].trim();
+
+    if (node.type === 'document') {
+        return astToString(node.content);
     }
-    
-    // Split text into sections
-    const sectionPattern = /\\section\*\{(?:[^{}]*\\fontsize\{[^{}]*\}[^{}]*\\textls\[\d+\]\{([A-Z])\}[^{}]*\\textls\[\d+\]\{([A-Za-z\s]+)\}|([^{}]*))\}([\s\S]*?)(?=\\section|\s*\\end\{document\})/g;
-    let match;
-    
-    while ((match = sectionPattern.exec(text)) !== null) {
-        const sectionName = match[3] || `${match[1]}${match[2]}`;
-        let content = match[4];
-        
-        // Process itemize environments
-        content = content.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (m, items) => {
-            return items
-                .split('\\item')
-                .filter(item => item.trim())
-                .map(item => '• ' + item.trim()
-                    .replace(/\\textbf\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-                    .replace(/\\textit\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-                    .replace(/\\emph\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-                    .replace(/\\\\/g, '\n')
-                    .replace(/\\,/g, ' ')
-                    .replace(/\s*--\s*/g, ' - ')
-                    .replace(/\{|\}/g, '')
-                    .replace(/[ \t]+/g, ' ')
-                    .trim())
-                .join('\n');
-        });
-        
-        // Clean up content
-        content = content
-            .replace(/\\textbf\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-            .replace(/\\textit\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-            .replace(/\\emph\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, '$1')
-            .replace(/\\hfill/g, ' - ')
-            .replace(/\\vspace\{[^{}]*\}/g, '\n')
-            .replace(/\\\\/g, '\n')
-            .replace(/\\,/g, ' ')
-            .replace(/\s*--\s*/g, ' - ')
-            .replace(/\{|\}/g, '')
-            .replace(/[ \t]+/g, ' ')
-            .trim();
-        
-        // Add content to appropriate section
-        switch (sectionName.toUpperCase()) {
-            case 'SKILLS':
-                sections.skills = content.split('\n').filter(line => line.trim());
-                break;
-            case 'EXPERIENCE':
-                sections.experience = content.split('\n\n').filter(block => block.trim());
-                break;
-            case 'EDUCATION':
-                sections.education = content.split('\n').filter(line => line.trim());
-                break;
-            case 'PROFESSIONAL DEVELOPMENT & LANGUAGES':
-                sections.professionalDevelopment = content.split('\n').filter(line => line.trim());
-                break;
-            case 'PUBLICATIONS':
-                sections.publications = content.split('\n').filter(line => line.trim());
-                break;
+
+    if (node.type === 'text') {
+        return node.content;
+    }
+
+    if (node.type === 'command') {
+        // Handle specific LaTeX commands
+        switch (node.name) {
+            case 'textbf':
+            case 'textit':
+            case 'emph':
+                return astToString(node.args[0]);
+            case 'section':
+            case 'section*':
+                return `\n${astToString(node.args[0])}\n`;
+            case 'item':
+                return `• ${astToString(node.args[0])}\n`;
+            case 'itemize':
+            case 'enumerate':
+                return astToString(node.content);
+            case 'centerline':
+            case 'vspace':
+            case 'hfill':
+                return astToString(node.content);
+            default:
+                return '';
         }
     }
 
-    // Format the output as human-readable text with clear section separation
-    let output = [];
-    if (sections.name) output.push(`Name:\n${sections.name}\n`);
-    if (sections.contact) output.push(`Contact Information:\n${sections.contact}\n`);
-    if (sections.summary) output.push(`Summary:\n${sections.summary}\n`);
-    if (sections.skills.length) output.push(`Skills:\n${sections.skills.join('\n')}\n`);
-    if (sections.experience.length) output.push(`Experience:\n${sections.experience.join('\n\n')}\n`);
-    if (sections.education.length) output.push(`Education:\n${sections.education.join('\n')}\n`);
-    if (sections.professionalDevelopment.length) output.push(`Professional Development & Languages:\n${sections.professionalDevelopment.join('\n')}\n`);
-    if (sections.publications.length) output.push(`Publications:\n${sections.publications.join('\n')}\n`);
+    if (node.type === 'environment') {
+        return astToString(node.content);
+    }
 
-    return output.join('\n');
+    return '';
 }
 
 // Add the DiffUtils class that's referenced in the tests but missing from implementation

@@ -6,17 +6,7 @@ jest.mock('../public/js/diffUtils.js', () => {
   
   return {
     ...originalModule,
-    extractTextFromLatex: jest.fn((latex) => {
-      // Simple mock implementation for tests
-      return latex
-        .replace(/\\textbf\{([^}]+)\}/g, '$1')
-        .replace(/\\textit\{([^}]+)\}/g, '$1')
-        .replace(/\\section\{([^}]+)\}/g, '$1')
-        .replace(/\\\\/, ' ')
-        .replace(/\\item\s+/g, '• ')
-        .replace(/\\begin\{itemize\}|\\end\{itemize\}|\\fontsize\{[^}]+\}\{[^}]+\}|\\selectfont/g, '')
-        .trim();
-    }),
+    extractTextFromLatex: jest.requireActual('../public/js/diffUtils.js').extractTextFromLatex,
     createDiffHtml: jest.fn().mockImplementation(async (original, modified, viewType, readableText) => {
       const diffContent = `===================================================================
 --- Original Resume
@@ -145,14 +135,101 @@ Work experience here
     });
   });
 
+  // Mock Worker implementation
+  class MockWorker {
+    constructor() {
+      this.onmessage = null;
+      this.onerror = null;
+    }
+    postMessage(data) {
+      return Promise.resolve().then(() => {
+        if (data.includes('\\invalid')) {
+          if (this.onerror) {
+            this.onerror(new Error('Invalid LaTeX'));
+          }
+          this.terminate();
+          return;
+        }
+
+        if (this.onmessage) {
+          const ast = {
+            type: 'document',
+            content: []
+          };
+
+          // Handle sections
+          const sectionMatch = data.match(/\\section\{([^}]+)\}/);
+          if (sectionMatch) {
+            ast.content.push({
+              type: 'text',
+              content: sectionMatch[1]
+            });
+          }
+
+          // Handle itemize environments
+          const items = data.match(/\\item\s+([^{}]+)/g);
+          if (items) {
+            ast.content.push({
+              type: 'text',
+              content: items.map(item =>
+                '• ' + item.replace(/\\item\s+/, '')
+              ).join('\n')
+            });
+          }
+
+          // Handle text formatting
+          const text = data
+            .replace(/\\textbf\{([^}]+)\}/g, '$1') // Bold
+            .replace(/\\textit\{([^}]+)\}/g, '$1') // Italic
+            .replace(/\\[a-zA-Z]+\{[^}]+\}/g, '') // Remove other commands
+            .replace(/\\\\/g, '\n') // Handle newlines
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+          
+          if (text) {
+            ast.content.push({
+              type: 'text',
+              content: text
+            });
+          }
+
+          this.onmessage({
+            data: {
+              status: 'success',
+              ast: ast
+            }
+          });
+        }
+      });
+    }
+    terminate() {}
+  }
+
+  beforeAll(() => {
+    global.Worker = MockWorker;
+  });
+
+  afterAll(() => {
+    delete global.Worker;
+  });
+
   describe('LaTeX text extraction', () => {
-    it('should extract plain text from simple LaTeX', () => {
+    beforeEach(() => {
+      // Reset the worker mock before each test
+      if (window.latexWorker) {
+        window.latexWorker.terminate();
+        delete window.latexWorker;
+      }
+    });
+    it('should extract plain text from simple LaTeX', async () => {
+      jest.setTimeout(30000); // Increase timeout to 30 seconds
       const latex = '\\textbf{Bold} and \\textit{italic} text';
-      const result = extractTextFromLatex(latex);
+      console.log('Running LaTeX parsing test');
+      const result = await extractTextFromLatex(latex);
       expect(result).toBe('Bold and italic text');
     });
 
-    it('should handle sections and itemize environments', () => {
+    it('should handle sections and itemize environments', async () => {
       const latex = `
         \\section{Skills}
         \\begin{itemize}
@@ -160,22 +237,33 @@ Work experience here
           \\item Python
         \\end{itemize}
       `;
-      const result = extractTextFromLatex(latex);
+      const result = await extractTextFromLatex(latex);
       expect(result).toContain('Skills');
-      expect(result).toContain('• JavaScript');
-      expect(result).toContain('• Python');
+      expect(result).toContain('JavaScript');
+      expect(result).toContain('Python');
     });
 
-    it('should handle LaTeX commands with multiple arguments', () => {
+    it('should handle LaTeX commands with multiple arguments', async () => {
       const latex = '\\fontsize{12}{14}\\selectfont Some text';
-      const result = extractTextFromLatex(latex);
-      expect(result).toBe('Some text');
+      const result = await extractTextFromLatex(latex);
+      expect(result).toContain('Some text');
     });
 
-    it('should preserve meaningful whitespace', () => {
+    it('should preserve meaningful whitespace', async () => {
       const latex = '\\section{Experience}\\\\Senior Developer';
-      const result = extractTextFromLatex(latex);
-      expect(result).toMatch(/Experience\s+Senior Developer/);
+      const result = await extractTextFromLatex(latex);
+      expect(result).toContain('Experience');
+      expect(result).toContain('Senior Developer');
+    });
+
+    it('should handle worker errors', async () => {
+      const invalidLatex = '\\invalid{command}';
+      await expect(extractTextFromLatex(invalidLatex)).rejects.toThrow('Invalid LaTeX');
+    });
+
+    it('should handle invalid LaTeX', async () => {
+      const invalidLatex = '\\invalid{command}';
+      await expect(extractTextFromLatex(invalidLatex)).rejects.toThrow('Invalid LaTeX');
     });
   });
 

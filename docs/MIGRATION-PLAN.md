@@ -13,9 +13,9 @@ sequenceDiagram
 ```
 
 **Tasks:**
-- [ ] Install LaTeX.js: `npm install latex.js`
-- [ ] Create web worker (`public/js/latexWorker.js`)
-- [ ] Replace regex parsing in `extractTextFromLatex()`
+- [x] Install LaTeX.js: `npm install latex.js`
+- [x] Create web worker (`public/js/latexWorker.js`)
+- [x] Replace regex parsing in `extractTextFromLatex()`
 
 **Test After:**
 ```bash
