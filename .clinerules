@@ -1,0 +1,36 @@
+Guide Management
+
+1. Check/Create Guides First
+if (!exists(PROJECT_GUIDE.md || CONTEXT_GUIDE.md)) create:
+
+CONTEXT_GUIDE.md:
+# Context Guide
+- Project State (status, features, issues)
+- Next Steps (plans, updates)
+- Decisions (YYYY-MM-DD: what, why, impact)
+
+PROJECT_GUIDE.md:
+# Project Guide
+- Config (tech, deps, setup)
+- Standards (code, practices, structure)
+- Architecture (design, components)
+
+2. Update Requirements
+
+CONTEXT_GUIDE.md:
+- Task: state, issues, plans
+- Dev: progress, decisions
+- End: changes, status, next
+
+PROJECT_GUIDE.md:
+- Architecture: design, components
+- Standards: patterns, rules
+- Process: build, test, deploy
+
+3. Usage
+- Check before work
+- Update during changes
+- Keep current
+- Track decisions
+
+Always check/update guides to maintain context.
