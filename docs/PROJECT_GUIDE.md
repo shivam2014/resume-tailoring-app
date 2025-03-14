@@ -1,7 +1,7 @@
 # Project Guide
 
 ## Config
-- Tech Stack: Node.js, Express, LaTeX.js
+- Tech Stack: Node.js, Express, pdfmake
 - Dependencies:
   - latex.js
   - jest (testing)
@@ -16,7 +16,7 @@
 - Components:
   - LaTeX Worker: Handles AST parsing in background
   - Diff Utils: Manages text comparison and formatting
-  - Server: Handles PDF generation (using LaTeX.js) and API endpoints
+  - Server: Handles PDF generation (using pdfmake) and API endpoints
 
 ## Process
 - Build: npm run build

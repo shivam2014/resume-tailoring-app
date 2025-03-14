@@ -1,4 +1,4 @@
-# LaTeX.js Migration Plan
+# PDF Generation Migration Plan
 
 ## Phase 1 - Core Parser Implementation
 
