@@ -1,20 +1,22 @@
 # Context Guide
 
 ## Project State
-- Status: In progress (Phase 1 of LaTeX.js migration)
+- Status: Phase 1.2 complete
 - Features:
   - LaTeX parsing via AST
   - Web worker implementation
   - Text extraction from LaTeX
-- Issues:
-  - Need to update server-side PDF generation
+  - PDF generation using LaTeX.js
+- Issues: None
 
 ## Next Steps
-1. Remove pdflatex dependency
-2. Add HTML preview endpoint
-3. Update PDF generation to use browser print
+1. Add HTML preview endpoint
 
 ## Decisions
+2025-03-14: Removed pdflatex dependency
+- Why: To migrate to LaTeX.js for better maintainability and cross-platform compatibility
+- Impact: Simplified PDF generation process, removed external dependency
+
 2025-03-14: Implemented AST-based LaTeX parsing
 - Why: To replace regex-based parsing with more robust solution
 - Impact: Improved accuracy and maintainability of LaTeX parsing

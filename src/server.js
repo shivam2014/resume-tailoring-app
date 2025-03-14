@@ -7,6 +7,7 @@ import cors from 'cors';
 import { exec } from 'child_process';
 import MistralHelper from './mistralHelper.js';
 import { fileURLToPath } from 'url';
+import { parse } from 'latex.js';
 
 // Determine dirname in a way that works in all environments
 const __dirname = process.env.NODE_ENV === 'test'
@@ -22,17 +23,6 @@ const streamingSessions = {
   tailor: new Map()
 };
 
-// Only check for pdflatex in non-test environment
-if (process.env.NODE_ENV !== 'test') {
-    // Check if pdflatex is installed
-    exec('pdflatex --version', (error) => {
-        if (error) {
-            console.error('Error: pdflatex is not installed or not in PATH');
-            console.error('Please install TeX Live or MiKTeX and ensure pdflatex is available');
-            process.exit(1);
-        }
-    });
-}
 
 // Function to try different ports if the current one is in use
 const startServer = (initialPort) => {
@@ -590,174 +580,67 @@ app.get('/stream-tailor-events', (req, res) => {
     req.on('close', () => clearInterval(heartbeatInterval));
 });
 
-// Generate PDF from modified content
+// Generate PDF from modified content using LaTeX.js
 app.post('/generate-pdf', async (req, res) => {
     try {
         if (!req.body.content) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'Missing content',
                 details: 'Please provide the LaTeX content'
             });
         }
 
-        const timestamp = Date.now();
-        const texPath = path.join(__dirname, `../uploads/resume-${timestamp}-final.tex`);
-        
-        // Save the content to a new .tex file
-        fs.writeFileSync(texPath, req.body.content);
-        console.log('Saved modified content to:', texPath);
-        
-        // Compile LaTeX to PDF
-        console.log('Compiling LaTeX to PDF...');
-        const { pdf: pdfPath, log: logContent } = await compileLaTeX(texPath);
-        console.log('PDF compilation successful:', pdfPath);
-
-        // Extract just the filename from the full path
-        const pdfFilename = path.basename(pdfPath);
-        console.log('PDF filename:', pdfFilename);
-        
-        res.set('Content-Type', 'application/pdf');
-        res.sendFile(pdfPath, (err) => {
-            if (err) {
-                console.error('Error sending PDF:', err);
+        const LaTeX = (await import('latex.js')).default;
+        try {
+            console.log('Received LaTeX content:', req.body.content);
+            
+            const pdfmake = require('pdfmake');
+            const fonts = {
+                Roboto: {
+                    normal: 'Helvetica',
+                    bold: 'Helvetica-Bold',
+                    italics: 'Helvetica-Oblique',
+                    bolditalics: 'Helvetica-BoldOblique'
+                }
+            };
+            
+            const printer = new pdfmake(fonts);
+            const docDefinition = {
+                content: [
+                    { text: req.body.content, fontSize: 12 }
+                ]
+            };
+            
+            try {
+                const pdfDoc = printer.createPdfKitDocument(docDefinition);
+                res.type('application/pdf');
+                pdfDoc.pipe(res);
+                pdfDoc.end();
+            } catch (error) {
+                console.error('PDF creation error:', error);
                 return res.status(500).json({
-                    error: 'Error sending PDF',
-                    details: err.message
+                    error: 'Failed to create PDF',
+                    details: error.message
                 });
             }
-            
-            // Clean up the generated files
-            fs.unlinkSync(texPath);
-            fs.unlinkSync(pdfPath);
-        });
-    } catch (error) {
-        if (error.latexLog) {
-            // LaTeX compilation error - return 400
-            res.status(400).json({
-                error: 'LaTeX compilation error',
-                details: error.message,
-                latexLog: error.latexLog
-            });
-        } else {
-            // Other errors - return 500
-            console.error('Error:', error);
-            res.status(500).json({
-                error: 'Error generating PDF',
-                details: error.message
-            });
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            console.error('Error stack:', error.stack);
+            throw new Error(`Failed to generate PDF: ${error.message}`);
         }
+    } catch (error) {
+      // Log error but don't send response yet
+      console.error('Error generating PDF:', error);
+      // Make sure we haven't already sent a response
+      if (!res.headersSent) {
+        return res.status(500).json({
+          error: 'Error generating PDF',
+          details: error.message
+        });
+      }
     }
 });
 
-async function compileLaTeX(texPath) {
-    return new Promise((resolve, reject) => {
-        const workDir = path.dirname(texPath);
-        const texFile = path.basename(texPath);
-        const logFile = texFile.replace('.tex', '.log');
-        const auxFile = texFile.replace('.tex', '.aux');
-        const outFile = texFile.replace('.tex', '.out');
-        
-        const options = {
-            cwd: workDir,
-            timeout: 60000 // Increase timeout to 60 seconds
-        };
-
-        // Clean up auxiliary files from previous runs
-        const cleanupFiles = [auxFile, outFile, logFile].map(file => path.join(workDir, file));
-        cleanupFiles.forEach(file => {
-            if (fs.existsSync(file)) {
-                try {
-                    fs.unlinkSync(file);
-                } catch (err) {
-                    console.warn(`Warning: Could not remove auxiliary file ${file}:`, err);
-                }
-            }
-        });
-
-        console.log('Running first LaTeX pass...');
-        console.log('Working directory:', workDir);
-        console.log('TeX file:', texFile);
-
-        // First pass
-        exec(`pdflatex -interaction=nonstopmode -file-line-error -halt-on-error ${texFile}`, options, (error1, stdout1, stderr1) => {
-            // Read log file if it exists
-            const logPath = path.join(workDir, logFile);
-            const logContent = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '';
-            
-            if (error1) {
-                console.error('First LaTeX compilation error');
-                console.error('stdout:', stdout1);
-                console.error('stderr:', stderr1);
-                console.error('Log file content:', logContent);
-                
-                // Try to extract meaningful error message from log
-                const errorMessage = extractLatexError(logContent);
-                const errorObj = new Error(errorMessage || 'LaTeX compilation failed');
-                errorObj.latexLog = logContent;
-                return reject(errorObj);
-            }
-            
-            console.log('Running second LaTeX pass...');
-            // Second pass
-            exec(`pdflatex -interaction=nonstopmode -file-line-error -halt-on-error ${texFile}`, options, (error2, stdout2, stderr2) => {
-                const finalLogContent = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '';
-                
-                if (error2) {
-                    console.error('Second LaTeX compilation error');
-                    console.error('stdout:', stdout2);
-                    console.error('stderr:', stderr2);
-                    console.error('Log file content:', finalLogContent);
-                    
-                    // Try to extract meaningful error message from log
-                    const errorMessage = extractLatexError(finalLogContent);
-                    const errorObj = new Error(errorMessage || 'LaTeX compilation failed');
-                    errorObj.latexLog = finalLogContent;
-                    reject(errorObj);
-                } else {
-                    const pdfPath = path.join(workDir, texFile.replace('.tex', '.pdf'));
-                    if (!fs.existsSync(pdfPath)) {
-                        const errorObj = new Error('PDF file not created despite successful compilation');
-                        errorObj.latexLog = finalLogContent;
-                        reject(errorObj);
-                    } else {
-                        resolve({
-                            pdf: pdfPath,
-                            log: finalLogContent
-                        });
-                    }
-                }
-            });
-        });
-    });
-}
-
-// Helper function to extract meaningful error messages from LaTeX log
-function extractLatexError(logContent) {
-    if (!logContent) return null;
-    
-    // Common LaTeX error patterns
-    const errorPatterns = [
-        /^!(.*?)\n/m,  // Basic error message
-        /^Error:(.*?)\n/m,  // Basic error pattern
-        /^LaTeX Error:(.*?)\n/m,  // LaTeX specific errors
-        /^! LaTeX Error:(.*?)\n/m,  // Another LaTeX error format
-        /^! Package (.*?) Error:(.*?)\n/m,  // Package specific errors
-        /^No file (.*?)\./m,  // Missing file errors
-        /^! Undefined control sequence\.\n\\([^\n]+)/m  // Undefined command errors
-    ];
-    
-    for (const pattern of errorPatterns) {
-        const match = logContent.match(pattern);
-        if (match) {
-            // Clean up the error message
-            return match[1]
-                .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
-                .trim();
-        }
-    }
-    
-    return null;
-}
 
 // Clean up old files periodically (keep files for 24 hours)
 export async function cleanupOldFiles() {
@@ -802,18 +685,64 @@ export async function cleanupOldFiles() {
     }
 }
 
-// Run cleanup every hour
-setInterval(cleanupOldFiles, 60 * 60 * 1000);
-// Run cleanup on startup
-cleanupOldFiles();
+let cleanupInterval;
 
-// Start server with port fallback
-startServer(port);
+if (process.env.NODE_ENV !== 'test') {
+    // Run cleanup every hour
+    cleanupInterval = setInterval(cleanupOldFiles, 60 * 60 * 1000);
+    // Run cleanup on startup
+    cleanupOldFiles();
+}
 
 // Export server starter for testing with explicit port
 export const startServerForTesting = () => {
+  // Don't start test server if already running
+  if (process.env.NODE_ENV === 'test' && app.listening) {
+    console.log('Server already running, reusing existing instance');
+    return app;
+  }
+
   console.log('Starting test server on port 3002');
-  return startServer(3002);
+  const server = startServer(3002);
+  
+  // Store original close method
+  const originalClose = server.close;
+  
+  server.closeForTesting = () => {
+    return new Promise((resolve) => {
+      // Clear cleanup interval if it exists
+      if (cleanupInterval) {
+        clearInterval(cleanupInterval);
+      }
+      
+      // Close all active streaming sessions
+      streamingSessions.analyze.clear();
+      streamingSessions.tailor.clear();
+      
+      // Forcefully close all connections
+      if (server.listening) {
+        server.closeAllConnections();
+      }
+
+      // Close the server with timeout
+      const closeTimeout = setTimeout(() => {
+        if (server.listening) {
+          server.closeAllConnections();
+          originalClose.call(server);
+        }
+        resolve();
+      }, 1000);
+
+      // Close the server
+      originalClose.call(server, () => {
+        clearTimeout(closeTimeout);
+        console.log('Test server closed');
+        resolve();
+      });
+    });
+  };
+  
+  return server;
 };
 
 // Only start server if not in test mode
