@@ -26,7 +26,7 @@ npm test tests/diffUtils.test.js -- -t "LaTeX parsing"
 ### 1.2 Server-Side Adjustments
 **Tasks:**
 - [x] Remove pdflatex dependency from `server.js`
-- [ ] Add HTML endpoint (`/get-preview`)
+- [x] Add HTML endpoint (`/get-preview`)
 - [x] Update PDF generation to use LaTeX.js
 
 **Test After:**

@@ -580,6 +580,72 @@ app.get('/stream-tailor-events', (req, res) => {
     req.on('close', () => clearInterval(heartbeatInterval));
 });
 
+// Convert pdfmake document definition to HTML
+export function generateHTMLPreview(content) {
+    let html = '<div style="font-family: Arial, sans-serif; padding: 20px;">';
+    
+    // Handle string content
+    if (typeof content === 'string') {
+        html += `<p>${content}</p>`;
+    }
+    // Handle array content
+    else if (Array.isArray(content)) {
+        content.forEach(item => {
+            if (typeof item === 'string') {
+                html += `<p>${item}</p>`;
+            } else if (item.text) {
+                const styles = [];
+                if (item.fontSize) styles.push(`font-size: ${item.fontSize}px`);
+                if (item.bold) styles.push('font-weight: bold');
+                if (item.italic) styles.push('font-style: italic');
+                
+                const tag = item.style === 'header' ? 'h2' : 'p';
+                html += `<${tag} style="${styles.join('; ')}">${item.text}</${tag}>`;
+            } else if (item.ul) {
+                html += '<ul>';
+                item.ul.forEach(li => {
+                    html += `<li>${li}</li>`;
+                });
+                html += '</ul>';
+            }
+        });
+    }
+    // Handle object content
+    else if (typeof content === 'object' && content.text) {
+        const styles = [];
+        if (content.fontSize) styles.push(`font-size: ${content.fontSize}px`);
+        if (content.bold) styles.push('font-weight: bold');
+        if (content.italic) styles.push('font-style: italic');
+        
+        const tag = content.style === 'header' ? 'h2' : 'p';
+        html += `<${tag} style="${styles.join('; ')}">${content.text}</${tag}>`;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+// Generate HTML preview
+app.post('/get-preview', (req, res) => {
+  try {
+    if (!req.body.content) {
+      return res.status(400).json({
+        error: 'Missing content',
+        details: 'Please provide the document content'
+      });
+    }
+
+    const htmlPreview = generateHTMLPreview(req.body.content);
+    return res.status(200).send(htmlPreview);
+  } catch (error) {
+    console.error('Error generating HTML preview:', error);
+    return res.status(500).json({
+      error: 'Error generating HTML preview',
+      details: error.message
+    });
+  }
+});
+
 // Generate PDF from modified content using LaTeX.js
 app.post('/generate-pdf', async (req, res) => {
     try {
@@ -639,7 +705,8 @@ app.post('/generate-pdf', async (req, res) => {
         });
       }
     }
-});
+  });
+
 
 
 // Clean up old files periodically (keep files for 24 hours)

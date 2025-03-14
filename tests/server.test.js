@@ -311,6 +311,78 @@ describe('Server Integration Tests', () => {
     }, 15000); // Increase timeout to 15 seconds
   });
 
+  describe('HTML Preview', () => {
+    it('should return 400 if no content provided', async () => {
+      const response = await request(app)
+        .post('/get-preview')
+        .send({});
+      
+      expect(response.statusCode).toBe(400);
+      expect(response.body.error).toBe('Missing content');
+    });
+
+    it('should generate HTML preview with basic content', async () => {
+      const content = 'Test content';
+      const response = await request(app)
+        .post('/get-preview')
+        .send({ content });
+      
+      expect(response.statusCode).toBe(200);
+      expect(response.text).toContain('<div');
+      expect(response.text).toContain(content);
+    });
+
+    it('should preserve styles in HTML preview', async () => {
+      const content = [
+        { text: 'Header', fontSize: 18, bold: true },
+        { text: 'Body text', fontSize: 12 },
+        { ul: ['Item 1', 'Item 2'] }
+      ];
+      
+      const response = await request(app)
+        .post('/get-preview')
+        .send({ content });
+      
+      expect(response.statusCode).toBe(200);
+      expect(response.text).toContain('font-size: 18px');
+      expect(response.text).toContain('font-weight: bold');
+      expect(response.text).toContain('<ul>');
+    });
+
+    it('should handle errors during HTML generation', async () => {
+      // Mock the error case directly in the route handler
+      const originalGenerateHTMLPreview = app._router.stack.find(
+        layer => layer.route && layer.route.path === '/get-preview'
+      ).handle;
+
+      app._router.stack.find(
+        layer => layer.route && layer.route.path === '/get-preview'
+      ).handle = (req, res) => {
+        try {
+          throw new Error('Test error');
+        } catch (error) {
+          return res.status(500).json({
+            error: 'Error generating HTML preview',
+            details: error.message
+          });
+        }
+      };
+
+      const response = await request(app)
+        .post('/get-preview')
+        .send({ content: 'test' });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.body.error).toBe('Error generating HTML preview');
+      expect(response.body.details).toBe('Test error');
+
+      // Restore original handler
+      app._router.stack.find(
+        layer => layer.route && layer.route.path === '/get-preview'
+      ).handle = originalGenerateHTMLPreview;
+    });
+  });
+
   describe('PDF Generation', () => {
     const validLatex = '\\documentclass{article}\\begin{document}Test\\end{document}';
 

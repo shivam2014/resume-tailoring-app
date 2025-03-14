@@ -3,10 +3,10 @@
 ## Project State
 - Status: Phase 1.2 complete
 - Features:
-  - LaTeX parsing via AST
-  - Web worker implementation
-  - Text extraction from LaTeX
-  - PDF generation using LaTeX.js
+  - HTML preview endpoint implementation
+  - Error handling for HTML generation
+  - Integration tests for HTML preview
+  - PDF generation using pdfmake
 - Issues: None
 
 ## Next Steps

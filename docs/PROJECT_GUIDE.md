@@ -3,9 +3,9 @@
 ## Config
 - Tech Stack: Node.js, Express, pdfmake
 - Dependencies:
-  - latex.js
   - jest (testing)
   - diff2html (diff visualization)
+  - supertest (integration testing)
 
 ## Standards
 - Code Style: ES6+ JavaScript
