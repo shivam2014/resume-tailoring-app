@@ -90,10 +90,31 @@ export class StreamHandler {
 
     processChunk(chunk, callback) {
         try {
+            // Validate chunk is not empty
+            if (!chunk || chunk.trim() === '') {
+                throw new Error('Empty chunk received');
+            }
+            
+            // Parse JSON with validation
             const data = JSON.parse(chunk);
+            if (typeof data !== 'object' || data === null) {
+                throw new Error('Invalid JSON structure');
+            }
+            
+            // Validate required fields
+            if (!data.content && !data.status && !data.error) {
+                throw new Error('Missing required fields in JSON');
+            }
+            
             callback(data);
         } catch (e) {
             console.error('Error processing chunk:', e);
+            // Provide fallback data structure
+            callback({
+                error: e.message,
+                content: '',
+                status: 'error'
+            });
         }
     }
 
@@ -166,19 +187,36 @@ export class StreamHandler {
             // Process events from the server
             eventSource.addEventListener('chunk', (event) => {
                 try {
+                    // Validate event data exists
                     if (!event.data) {
                         throw new Error('No data received from server');
                     }
+                    
+                    // Parse JSON with validation
                     const data = JSON.parse(event.data);
+                    if (typeof data !== 'object' || data === null) {
+                        throw new Error('Invalid JSON structure');
+                    }
+                    
+                    // Validate required fields
+                    if (!data.content && !data.status && !data.error) {
+                        throw new Error('Missing required fields in JSON');
+                    }
+                    
+                    // Process valid content
                     if (callbacks.onChunk && data.content) {
                         callbacks.onChunk(data.content);
-                    } else if (!data.content) {
-                        throw new Error('No content field in response');
+                    } else if (callbacks.onError) {
+                        callbacks.onError(data.error || 'No content field in response');
                     }
                 } catch (error) {
                     console.error('Error processing chunk:', error.message);
                     if (callbacks.onError) {
                         callbacks.onError(`Failed to process server response: ${error.message}`);
+                    }
+                    // Provide fallback data
+                    if (callbacks.onChunk) {
+                        callbacks.onChunk('');
                     }
                 }
             });

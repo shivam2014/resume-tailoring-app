@@ -45,9 +45,26 @@ beforeAll(async () => {
   server.on('connection', (socket) => {
     socket.setKeepAlive(true, 60000);
     socket.setTimeout(10000);
+    
+    // Track socket for cleanup
+    const cleanupSocket = () => {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
+    };
+    
     socket.on('timeout', () => {
       console.warn('Socket timeout, closing connection');
-      socket.destroy();
+      cleanupSocket();
+    });
+    
+    socket.on('close', () => {
+      socket.removeAllListeners();
+    });
+    
+    socket.on('error', (err) => {
+      console.error('Socket error:', err);
+      cleanupSocket();
     });
   });
   
@@ -57,40 +74,55 @@ beforeAll(async () => {
   });
 });
 
-afterAll((done) => {
-  if (server) {
-    // Close all active connections
+afterAll(async () => {
+  if (!server) return;
+
+  // Close all active connections
+  const connections = await new Promise((resolve) => {
     server.getConnections((err, count) => {
       if (err) {
         console.error('Error getting connections:', err);
-      } else if (count > 0) {
-        console.log(`Closing ${count} active connections`);
-      }
-    });
-
-    // Close the server with timeout
-    const closeTimeout = setTimeout(() => {
-      console.error('Server close timeout, forcing exit');
-      process.exit(1);
-    }, 5000);
-
-    server.close((err) => {
-      clearTimeout(closeTimeout);
-      if (err) {
-        console.error('Error closing server:', err);
+        resolve(0);
       } else {
-        console.log('Test server closed');
+        console.log(`Closing ${count} active connections`);
+        resolve(count);
       }
-      // Remove all listeners
-      server.removeAllListeners();
-      done();
     });
-  } else {
-    done();
+  });
+
+  // Force close any remaining connections
+  if (connections > 0) {
+    server.closeIdleConnections();
   }
-  
-  // Clean up any remaining resources
-  process.removeAllListeners('uncaughtException');
+
+  // Close the server with timeout
+  const closeTimeout = setTimeout(() => {
+    console.error('Server close timeout, forcing exit');
+    process.exit(1);
+  }, 5000);
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        clearTimeout(closeTimeout);
+        if (err) {
+          console.error('Error closing server:', err);
+          reject(err);
+        } else {
+          console.log('Test server closed');
+          resolve();
+        }
+      });
+    });
+
+    // Clean up all listeners and resources
+    server.removeAllListeners();
+    server.unref();
+    process.removeAllListeners('uncaughtException');
+  } catch (error) {
+    console.error('Error during server cleanup:', error);
+    throw error;
+  }
 });
 import fs from 'fs';
 import path from 'path';

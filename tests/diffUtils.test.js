@@ -92,7 +92,12 @@ Work experience here
             }
           }, 0);
         }
-        terminate() {}
+        terminate() {
+          // Clear any pending timers
+          if (this.timer) {
+            clearTimeout(this.timer);
+          }
+        }
       };
     });
 
@@ -271,6 +276,17 @@ Work experience here
 
   beforeAll(() => {
     global.Worker = MockWorker;
+  });
+
+  afterEach(() => {
+    // Clear any pending timers
+    jest.clearAllTimers();
+    
+    // Clean up worker instance
+    if (window.latexWorker) {
+      window.latexWorker.terminate();
+      delete window.latexWorker;
+    }
   });
 
   afterAll(() => {

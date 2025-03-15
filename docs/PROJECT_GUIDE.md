@@ -11,6 +11,11 @@
 - Code Style: ES6+ JavaScript
 - Testing: Jest with 100% test coverage goal
 - Documentation: Maintain CONTEXT_GUIDE and PROJECT_GUIDE
+- Error Handling:
+  - Validate all JSON inputs
+  - Provide meaningful error messages
+  - Implement fallback mechanisms
+  - Ensure proper resource cleanup
 
 ## Architecture
 - Components:
@@ -21,6 +26,10 @@
     - Section extraction
     - LaTeX text extraction
     - Diff visualization
+  - Streaming Handler: Manages real-time data processing
+    - Handles JSON parsing and validation
+    - Manages event streams
+    - Implements error recovery
   - Server: Handles PDF generation (using pdfmake) and API endpoints
 
 ## Process
