@@ -150,6 +150,10 @@ export class StreamHandler {
         try {
             console.log('Starting job analysis...');
             
+            if (!this.streamConnections) {
+                this.streamConnections = {};
+            }
+            
             const response = await fetch('/stream-analyze', {
                 method: 'POST',
                 body: formData
@@ -309,6 +313,10 @@ export class StreamHandler {
         this.closeStream('tailor');
 
         try {
+            // Validate required fields
+            if (!data || !data.resumeContent || !data.jobRequirements) {
+                throw new Error('Missing required fields: resumeContent and jobRequirements are required');
+            }
             // Validate required fields
             if (!data.resumeContent || !data.jobRequirements) {
                 throw new Error('Missing required fields: resumeContent and jobRequirements are required');

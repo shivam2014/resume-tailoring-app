@@ -1,19 +1,106 @@
 import axios from 'axios';
 
 export class MistralHelper {
+    validateApiKey(apiKey) {
+        if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
+            throw new Error('Invalid API key. Please provide a valid Mistral API key.');
+        }
+        return true;
+    }
+    
     constructor(apiKey, options = {}) {
-        this.apiKey = apiKey;
-        this.client = axios.create({
-            baseURL: 'https://api.mistral.ai/v1',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
+        try {
+            this.validateApiKey(apiKey);
+            this.apiKey = apiKey;
+            this.retryCount = options.retryCount || 2;
+            this.retryDelay = options.retryDelay || 1000;
+            
+            this.client = axios.create({
+                baseURL: 'https://api.mistral.ai/v1',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                timeout: options.timeout || 30000 // Add timeout option
+            });
+            
+            // Quiet the logging in test environments
+            if (process.env.NODE_ENV !== 'test') {
+                console.log('Request Headers:', {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey.substring(0, 5)}...` // Only log part of the API key for security
+                });
             }
-        });
-        
-        // Store custom prompts or use defaults
-        this.analyzePrompt = options.analyzePrompt || this.getDefaultAnalyzePrompt();
-        this.tailorPrompt = options.tailorPrompt || this.getDefaultTailorPrompt();
+            
+            this.client.interceptors.response.use(response => response, error => {
+                if (error.response && error.response.status === 401) {
+                    console.error('Authentication failed. Please check your Mistral API key.');
+                    error.isAuthError = true; // Mark auth errors for special handling
+                } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                    console.error('Request timeout. The Mistral API is taking too long to respond.');
+                } else if (error.response) {
+                    console.error(`API error: ${error.response.status} - ${error.response.data?.error?.message || 'Unknown error'}`);
+                } else if (error.request) {
+                    console.error('No response received from Mistral API. Please check your network connection.');
+                } else {
+                    console.error('Error setting up request:', error.message);
+                }
+                return Promise.reject(error);
+            });
+            
+            // Store custom prompts or use defaults
+            this.analyzePrompt = options.analyzePrompt || this.getDefaultAnalyzePrompt();
+            this.tailorPrompt = options.tailorPrompt || this.getDefaultTailorPrompt();
+            
+            // Initialize array to track active streams for cleanup
+            this.activeStreams = [];
+
+            // Add a helper method for error message creation
+            this.createErrorMessage = (error, context) => {
+                // Check for specific error types
+                if (error.name === 'AbortError' || error.message === 'canceled') {
+                    return 'Request was manually aborted by user or system';
+                }
+                
+                if (error.code === 'ECONNRESET') {
+                    return 'Connection was reset. This may be due to network instability';
+                }
+                
+                if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                    return `Request timed out. The API service may be overloaded (context: ${context})`;
+                }
+                
+                if (error.message === 'Stream interrupted') {
+                    return 'Stream was interrupted, possibly due to network issues';
+                }
+                
+                if (error.message.includes('Invalid stream response') || 
+                    error.message.includes('Invalid chunk')) {
+                    return 'Received invalid data from API, check response format';
+                }
+                
+                // Authentication errors
+                if (error.response && error.response.status === 401) {
+                    return 'Authentication failed. Please check your Mistral API key and try again';
+                }
+                
+                // Rate limiting errors
+                if (error.response && error.response.status === 429) {
+                    return 'API rate limit exceeded. Please try again later';
+                }
+                
+                // Server errors
+                if (error.response && error.response.status >= 500) {
+                    return `Server error (${error.response.status}). The API service may be experiencing issues`;
+                }
+                
+                // Fallback to general error
+                return `Unexpected API error: ${error.message || 'Unknown error'}`;
+            };
+        } catch (error) {
+            console.error('MistralHelper initialization error:', error.message);
+            throw error; // Re-throw to allow caller to handle
+        }
     }
 
     getDefaultAnalyzePrompt() {
@@ -64,6 +151,52 @@ Job Requirements:
 [JOB_REQUIREMENTS]
 
 Return only the modified LaTeX content. Keep all original LaTeX commands and structure intact.`;
+    }
+
+    // Add retry mechanism for API calls
+    async retryApiCall(apiCallFn, maxRetries = this.retryCount) {
+        let lastError = null;
+        
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    // Only log retries in non-test environments
+                    if (process.env.NODE_ENV !== 'test') {
+                        console.log(`Retry attempt ${attempt}/${maxRetries} for API call`);
+                    }
+                    // Wait before retry with exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, this.retryDelay * Math.pow(2, attempt - 1)));
+                }
+                
+                return await apiCallFn();
+            } catch (error) {
+                lastError = error;
+                // Don't retry on authentication errors
+                if (error.isAuthError || (error.response && error.response.status === 401)) {
+                    console.error('Authentication error, not retrying');
+                    throw error;
+                }
+                
+                // Only retry on network errors or 5xx errors
+                if (!error.response || (error.response.status >= 500 && error.response.status < 600)) {
+                    // Only log warnings in non-test environments or on final failure
+                    if (process.env.NODE_ENV !== 'test' || attempt === maxRetries) {
+                        console.warn(`API call failed, ${attempt < maxRetries ? 'will retry' : 'no more retries'}: ${error.message}`, {
+                            attempt,
+                            maxRetries,
+                            errorType: error.code || (error.response ? error.response.status : 'unknown')
+                        });
+                    }
+                    continue;
+                }
+                
+                // Don't retry for other errors
+                throw error;
+            }
+        }
+        
+        // If we get here, all retries failed
+        throw lastError;
     }
 
     // Add new helper method to convert LaTeX to readable text
@@ -185,41 +318,70 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
     }
 
     async analyzeJobDescription(description) {
-        // Replace placeholder in prompt
-        const prompt = this.analyzePrompt.replace('[JOB_DESCRIPTION]', description);
-
-        try {
-            const response = await this.client.post('/chat/completions', {
-                model: "mistral-small",
-                messages: [{
-                    role: "user",
-                    content: prompt + "\nMake sure to return valid JSON only."
-                }]
-            });
-
-            const content = response.data.choices[0].message.content;
-            
-            // Try to find and extract JSON content
-            let jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('No valid JSON found in response');
-            }
-
-            // Clean up common JSON formatting issues
-            let jsonStr = jsonMatch[0]
-                .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
-                .replace(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/g, ' ') // Clean up extra whitespace outside quotes
-                .replace(/,\s*}/g, '}') // Remove trailing commas
-                .replace(/,\s*]/g, ']'); // Remove trailing commas in arrays
-
-            return JSON.parse(jsonStr);
-        } catch (error) {
-            console.error('Error analyzing job description:', error.response?.data || error.message);
-            throw new Error(error.response?.data?.error?.message || error.message);
+        // Allow empty string but trim it first
+        const trimmedDescription = description?.trim() || '';
+        if (typeof description !== 'string') {
+            throw new Error('Invalid job description. Please provide a string value.');
         }
+        
+        // Replace placeholder in prompt
+        const prompt = this.analyzePrompt.replace('[JOB_DESCRIPTION]', trimmedDescription);
+
+        return this.retryApiCall(async () => {
+            try {
+                const response = await this.client.post('/chat/completions', {
+                    model: "mistral-small",
+                    messages: [{
+                        role: "user",
+                        content: prompt + "\nMake sure to return valid JSON only."
+                    }]
+                });
+
+                const content = response.data.choices[0]?.message?.content;
+                
+                if (!content) {
+                    throw new Error('Empty response from API');
+                }
+                
+                // Enhanced JSON extraction and cleanup
+                let jsonStr = content;
+                try {
+                    // Try parsing as-is first
+                    return JSON.parse(content);
+                } catch {
+                    // Try finding and extracting JSON if direct parse fails
+                    const jsonMatch = content.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) {
+                        throw new Error('No valid JSON found in response');
+                    }
+
+                    jsonStr = jsonMatch[0]
+                        .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
+                        .replace(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/g, ' ') // Clean whitespace
+                        .replace(/,\s*[}\]]/g, '$1'); // Remove trailing commas
+
+                    return JSON.parse(jsonStr);
+                }
+            } catch (error) {
+                if (error.response?.status === 401) {
+                    const authError = new Error('Authentication failed. Please check your Mistral API key and update it in the .env file.');
+                    authError.isAuthError = true;
+                    throw authError;
+                }
+                throw new Error(error.response?.data?.error?.message || error.message);
+            }
+        });
     }
 
     async tailorResume(resumeContent, jobRequirements) {
+        if (!resumeContent || typeof resumeContent !== 'string') {
+            throw new Error('Invalid resume content. Please provide valid LaTeX content.');
+        }
+        
+        if (!jobRequirements || typeof jobRequirements !== 'object') {
+            throw new Error('Invalid job requirements. Please provide valid job requirements object.');
+        }
+        
         // First convert the resume content to plain text for analysis
         const plainTextResume = this.latexToPlainText(resumeContent);
         
@@ -228,20 +390,27 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             .replace('[RESUME_CONTENT]', resumeContent)
             .replace('[JOB_REQUIREMENTS]', JSON.stringify(jobRequirements, null, 2));
 
-        try {
-            const response = await this.client.post('/chat/completions', {
-                model: "mistral-small",
-                messages: [{
-                    role: "user",
-                    content: prompt
-                }]
-            });
+        return this.retryApiCall(async () => {
+            try {
+                const response = await this.client.post('/chat/completions', {
+                    model: "mistral-small",
+                    messages: [{
+                        role: "user",
+                        content: prompt
+                    }]
+                });
 
-            return response.data.choices[0].message.content;
-        } catch (error) {
-            console.error('Error tailoring resume:', error.response?.data || error.message);
-            throw new Error(error.response?.data?.error?.message || error.message);
-        }
+                const content = response.data.choices[0]?.message?.content;
+                if (!content) {
+                    throw new Error('Empty response from API');
+                }
+                
+                return content;
+            } catch (error) {
+                console.error('Error tailoring resume:', error.response?.data || error.message);
+                throw new Error(error.response?.data?.error?.message || error.message);
+            }
+        });
     }
 
     // Add new methods for streaming API responses
@@ -252,9 +421,24 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
      * @param {function} onChunk - Callback function to handle each chunk of streamed data
      * @param {function} onComplete - Callback function called when streaming is complete
      * @param {function} onError - Callback function to handle errors
+     * @returns {Object} - Controller object with an abort method
      */
     async streamAnalyzeJobDescription(description, onChunk, onComplete, onError) {
+        if (!description || typeof description !== 'string' || description.trim() === '') {
+            onError('Invalid job description. Please provide a non-empty job description.');
+            return { abort: () => {} };
+        }
+        
+        if (typeof onChunk !== 'function' || typeof onComplete !== 'function' || typeof onError !== 'function') {
+            console.error('Invalid callback functions provided');
+            return { abort: () => {} };
+        }
+        
         // Create a system message to enforce JSON format
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('API Key:', `${this.apiKey.substring(0, 5)}...`); // Only log part of the API key for security
+        }
+        
         const systemMessage = {
             role: "system",
             content: "You MUST respond with a complete, well-formed JSON object ONLY. No other text allowed. Begin your response with '{' and end with '}'."
@@ -266,144 +450,221 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             content: this.analyzePrompt.replace('[JOB_DESCRIPTION]', description)
         };
 
-        try {
-            const response = await this.client.post('/chat/completions', {
-                model: "mistral-small-latest",
-                messages: [systemMessage, userMessage],
-                stream: true,
-                temperature: 0.1
-            }, {
-                responseType: 'stream'
-            });
+        // Create an abort controller for this request
+        const controller = new AbortController();
+        let retryCount = 0;
+        const maxRetries = this.retryCount;
+        
+        const attemptRequest = async () => {
+            try {
+                const response = await this.client.post('/chat/completions', {
+                    model: "mistral-small-latest",
+                    messages: [systemMessage, userMessage],
+                    stream: true,
+                    temperature: 0.1
+                }, {
+                    responseType: 'stream',
+                    signal: controller.signal,
+                    timeout: 60000 // Extended timeout for streaming
+                });
 
-            const decoder = new TextDecoder('utf-8');
-            let buffer = '';
-            let jsonBuffer = '';
-            let fullResponse = '';
-            let foundStart = false;
+                const stream = this.validateStream(response.data);
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                let jsonBuffer = '';
+                let fullResponse = '';
+                let foundStart = false;
+                
+                // Store reference to the response data stream for cleanup
+                this.activeStreams.push({ stream, controller });
 
-            const processBuffer = () => {
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop() || ''; // Keep last partial chunk
+                const processBuffer = () => {
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || ''; // Keep last partial chunk
 
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-                    
-                    const data = trimmedLine.slice(5);
-                    if (data === '[DONE]') continue;
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+                        
+                        const data = trimmedLine.slice(5);
+                        
+                        // Move this check outside of try/catch
+                        if (data === '[DONE]') {
+                            continue; // Skip processing [DONE]
+                        }
+                        
+                        try {
+                            const json = JSON.parse(data);
+                            const content = json.choices?.[0]?.delta?.content || '';
+                            
+                            if (content) {
+                                // Handle JSON content
+                                if (!foundStart && content.includes('{')) {
+                                    foundStart = true;
+                                    const startIndex = content.indexOf('{');
+                                    jsonBuffer = content.slice(startIndex);
+                                } else if (foundStart) {
+                                    jsonBuffer += content;
+                                }
+
+                                fullResponse += content;
+                                
+                                // Only send content after we've found a valid JSON start
+                                if (foundStart) {
+                                    onChunk(content);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Warning: Invalid chunk received:', e.message);
+                            // For [DONE] markers, just continue without error
+                            if (data === '[DONE]') {
+                                continue;
+                            }
+                            // Only call onError for actual JSON parsing errors
+                            if (!this._isFinalChunk(data)) {
+                                console.warn('Invalid chunk format:', e.message);
+                            }
+                        }
+                    }
+                };
+
+                stream.on('data', (chunk) => {
+                    try {
+                        buffer += decoder.decode(chunk);
+                        processBuffer();
+                    } catch (err) {
+                        console.warn('Error processing stream chunk:', err.message);
+                        // Don't fail the whole stream for a single bad chunk
+                    }
+                });
+
+                stream.on('end', () => {
+                    // Remove this stream from active streams array on completion
+                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
                     
                     try {
-                        const json = JSON.parse(data);
-                        const content = json.choices?.[0]?.delta?.content || '';
+                        if (process.env.NODE_ENV !== 'test') {
+                          console.log('\nProcessing final content...');
+                        }
+
+                        // If the buffer is empty or invalid, log it
+                        if (!jsonBuffer.trim()) {
+                            const emptyBufferError = new Error('Empty JSON buffer received');
+                            console.error('Error:', emptyBufferError.message);
+                            onError('No valid JSON content received from the API. The response was empty.');
+                            return;
+                        }
+
+                        // Clean up and parse the JSON
+                        let jsonStr = jsonBuffer.trim();
+                        let cleanedJson = jsonStr;
+
+                        // Only log if we need to fix the JSON structure
+                        if (!jsonStr.startsWith('{')) {
+                            console.log('Adding missing opening brace');
+                            cleanedJson = '{' + cleanedJson;
+                        }
+                        if (!jsonStr.endsWith('}')) {
+                            console.log('Adding missing closing brace');
+                            cleanedJson = cleanedJson + '}';
+                        }
+
+                        // Clean up the JSON buffer
+                        cleanedJson = cleanedJson
+                            .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
+                            .replace(/\\n/g, ' ') // Replace newlines with spaces
+                            .replace(/\s+/g, ' ') // Normalize whitespace
+                            .trim();
+
+                        // Only log if we actually had to make fixes
+                        if (cleanedJson !== jsonStr) {
+                            console.log('Applied JSON structure fixes');
+                        }
+
+                        // Attempt to parse the cleaned JSON
+                        const parsedJson = JSON.parse(cleanedJson);
                         
-                        if (content) {
-                            // Handle JSON content
-                            if (!foundStart && content.includes('{')) {
-                                foundStart = true;
-                                const startIndex = content.indexOf('{');
-                                jsonBuffer = content.slice(startIndex);
-                            } else if (foundStart) {
-                                jsonBuffer += content;
-                            }
+                        // Log parsing success and content summary
+                        const categories = Object.keys(parsedJson);
+                        if (categories.length > 0) {
+                            console.log('Successfully parsed JSON with categories:', categories.join(', '));
+                        } else {
+                            console.warn('Warning: Parsed JSON is empty');
+                        }
 
-                            fullResponse += content;
-                            
-                            // Only send content after we've found a valid JSON start
-                            if (foundStart) {
-                                onChunk(content);
+                        // Ensure all array values are strings
+                        let hasArrays = false;
+                        for (const key in parsedJson) {
+                            if (Array.isArray(parsedJson[key])) {
+                                hasArrays = true;
+                                parsedJson[key] = parsedJson[key].map(item => 
+                                    typeof item === 'string' ? item : JSON.stringify(item)
+                                );
                             }
                         }
-                    } catch (e) {
-                        console.warn('Warning: Invalid chunk received:', e.message);
-                    }
-                }
-            };
-
-            response.data.on('data', (chunk) => {
-                buffer += decoder.decode(chunk);
-                processBuffer();
-            });
-
-            response.data.on('end', () => {
-                try {
-                    console.log('\nProcessing final content...'); // Start of processing log
-
-                    // If the buffer is empty or invalid, log it
-                    if (!jsonBuffer.trim()) {
-                        console.error('Error: Empty JSON buffer received');
-                        onError('No valid JSON content received from the API');
-                        return;
-                    }
-
-                    // Clean up and parse the JSON
-                    let jsonStr = jsonBuffer.trim();
-                    let cleanedJson = jsonStr;
-
-                    // Only log if we need to fix the JSON structure
-                    if (!jsonStr.startsWith('{')) {
-                        console.log('Adding missing opening brace');
-                        cleanedJson = '{' + cleanedJson;
-                    }
-                    if (!jsonStr.endsWith('}')) {
-                        console.log('Adding missing closing brace');
-                        cleanedJson = cleanedJson + '}';
-                    }
-
-                    // Clean up the JSON buffer
-                    cleanedJson = cleanedJson
-                        .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
-                        .replace(/\\n/g, ' ') // Replace newlines with spaces
-                        .replace(/\s+/g, ' ') // Normalize whitespace
-                        .trim();
-
-                    // Only log if we actually had to make fixes
-                    if (cleanedJson !== jsonStr) {
-                        console.log('Applied JSON structure fixes');
-                    }
-
-                    // Attempt to parse the cleaned JSON
-                    const parsedJson = JSON.parse(cleanedJson);
-                    
-                    // Log parsing success and content summary
-                    const categories = Object.keys(parsedJson);
-                    if (categories.length > 0) {
-                        console.log('Successfully parsed JSON with categories:', categories.join(', '));
-                    } else {
-                        console.warn('Warning: Parsed JSON is empty');
-                    }
-
-                    // Ensure all array values are strings
-                    let hasArrays = false;
-                    for (const key in parsedJson) {
-                        if (Array.isArray(parsedJson[key])) {
-                            hasArrays = true;
-                            parsedJson[key] = parsedJson[key].map(item => 
-                                typeof item === 'string' ? item : JSON.stringify(item)
-                            );
+                        
+                        if (hasArrays) {
+                            console.log('Normalized array values to strings');
                         }
+
+                        onComplete(parsedJson);
+                    } catch (error) {
+                        console.error('Failed to parse job requirements:', error.message, { stack: error.stack });
+                        onError(`Error parsing job requirements: ${error.message}. Please check the format of your input.`);
                     }
+                });
+
+                stream.on('error', (err) => {
+                    // Remove this stream from active streams array on error
+                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
                     
-                    if (hasArrays) {
-                        console.log('Normalized array values to strings');
-                    }
+                    // Log detailed error info but send user-friendly message
+                    console.error('Stream error:', err.message, { 
+                        stack: err.stack,
+                        code: err.code,
+                        type: err.constructor.name
+                    });
+                    
+                    const errorMessage = this.createErrorMessage(err, 'job analysis');
+                    onError(errorMessage);
+                });
 
-                    onComplete(parsedJson);
-                } catch (error) {
-                    console.error('Failed to parse job requirements:', error.message);
-                    onError('Error parsing job requirements: ' + error.message);
+                // Return controller for external abort capability
+                return { abort: () => controller.abort() };
+
+            } catch (error) {
+                // Handle setup/connection errors with detailed logging
+                console.error('API error:', error.message, { 
+                    stack: error.stack,
+                    code: error.code,
+                    status: error.response?.status,
+                    statusText: error.response?.statusText
+                });
+                
+                // Retry logic for certain errors
+                if (retryCount < maxRetries && 
+                    (error.code === 'ECONNRESET' || error.code === 'ECONNABORTED' || 
+                     (error.response && error.response.status >= 500))) {
+                    
+                    retryCount++;
+                    console.log(`Retrying stream request (${retryCount}/${maxRetries})...`);
+                    
+                    // Exponential backoff
+                    const delay = this.retryDelay * Math.pow(2, retryCount - 1);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    
+                    return attemptRequest();
                 }
-            });
-
-            response.data.on('error', (err) => {
-                console.error('Stream error:', err.message);
-                onError('Stream error: ' + err.message);
-            });
-
-        } catch (error) {
-            console.error('API error:', error.message);
-            onError(error.response?.data?.error?.message || error.message);
-        }
+                
+                // Create user-friendly error message based on error type
+                const errorMessage = this.createErrorMessage(error, 'job analysis');
+                onError(errorMessage);
+                
+                return { abort: () => {} }; // Return no-op function if request failed
+            }
+        };
+        
+        return attemptRequest();
     }
 
     /**
@@ -413,8 +674,25 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
      * @param {function} onChunk - Callback function to handle each chunk of streamed data
      * @param {function} onComplete - Callback function called when streaming is complete
      * @param {function} onError - Callback function to handle errors
+     * @returns {Object} - Controller object with an abort method
      */
     async streamTailorResume(resumeContent, jobRequirements, onChunk, onComplete, onError) {
+        // Input validation
+        if (!resumeContent || typeof resumeContent !== 'string') {
+            onError('Invalid resume content. Please provide valid LaTeX content.');
+            return { abort: () => {} };
+        }
+        
+        if (!jobRequirements || typeof jobRequirements !== 'object') {
+            onError('Invalid job requirements. Please provide valid job requirements object.');
+            return { abort: () => {} };
+        }
+        
+        if (typeof onChunk !== 'function' || typeof onComplete !== 'function' || typeof onError !== 'function') {
+            console.error('Invalid callback functions provided');
+            return { abort: () => {} };
+        }
+        
         // First convert the resume content to plain text for analysis
         const plainTextResume = this.latexToPlainText(resumeContent);
         
@@ -423,93 +701,234 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             .replace('[RESUME_CONTENT]', resumeContent)
             .replace('[JOB_REQUIREMENTS]', JSON.stringify(jobRequirements, null, 2));
 
-        try {
-            const response = await this.client.post('/chat/completions', {
-                model: "mistral-small-latest",
-                messages: [{
-                    role: "user",
-                    content: prompt
-                }],
-                stream: true,
-                temperature: 0.1 // Add temperature for more stable responses
-            }, {
-                responseType: 'stream'
-            });
+        // Create an abort controller for this request
+        const controller = new AbortController();
+        let retryCount = 0;
+        const maxRetries = this.retryCount;
+        
+        const attemptRequest = async () => {
+            try {
+                const response = await this.client.post('/chat/completions', {
+                    model: "mistral-small-latest",
+                    messages: [{
+                        role: "user",
+                        content: prompt
+                    }],
+                    stream: true,
+                    temperature: 0.1 // Add temperature for more stable responses
+                }, {
+                    responseType: 'stream',
+                    signal: controller.signal,
+                    timeout: 30000 // Add explicit timeout
+                });
 
-            const decoder = new TextDecoder('utf-8');
-            let buffer = '';
-            let accumulatedResponse = '';
+                const stream = this.validateStream(response.data);
+                const decoder = new TextDecoder('utf-8');
+                let buffer = ''; // Define buffer here
+                let accumulatedResponse = '';
 
-            const processBuffer = () => {
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop() || ''; // Keep last partial chunk
+                this.activeStreams.push({ stream, controller });
 
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-                    
-                    const data = trimmedLine.slice(5);
-                    if (data === '[DONE]') continue;
-                    
-                    try {
-                        const json = JSON.parse(data);
-                        const content = json.choices?.[0]?.delta?.content || '';
+                const processBuffer = () => {
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || ''; // Keep last partial chunk
+
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
                         
-                        if (content) {
-                            accumulatedResponse += content;
-                            onChunk(content);
+                        const data = trimmedLine.slice(5);
+                        
+                        // Move this check outside of try/catch
+                        if (data === '[DONE]') {
+                            continue; // Skip processing [DONE]
                         }
-                    } catch (e) {
-                        console.warn('Warning: Invalid chunk received:', e.message);
-                    }
-                }
-            };
-
-            response.data.on('data', (chunk) => {
-                buffer += decoder.decode(chunk);
-                processBuffer();
-            });
-
-            response.data.on('end', () => {
-                // Process any remaining data in the buffer
-                if (buffer.trim()) {
-                    const data = buffer.trim().slice(5);
-                    try {
-                        if (data && data !== '[DONE]') {
+                        
+                        try {
                             const json = JSON.parse(data);
                             const content = json.choices?.[0]?.delta?.content || '';
+                            
                             if (content) {
                                 accumulatedResponse += content;
                                 onChunk(content);
                             }
+                        } catch (e) {
+                            console.warn('Warning: Invalid chunk received:', e.message);
+                            // For [DONE] markers, just continue without error
+                            if (data === '[DONE]') {
+                                continue;
+                            }
+                            // Only call onError for actual JSON parsing errors
+                            if (!this._isFinalChunk(data)) {
+                                console.warn('Invalid chunk format:', e.message);
+                            }
                         }
-                    } catch (e) {
-                        console.warn('Warning: Invalid final chunk:', e.message);
                     }
+                };
+
+                stream.on('data', (chunk) => {
+                    try {
+                        buffer += decoder.decode(chunk);
+                        processBuffer();
+                    } catch (err) {
+                        console.warn('Stream processing error:', err.message, { stack: err.stack });
+                        // Log but don't fail the stream for a single chunk error
+                    }
+                });
+
+                stream.on('end', () => {
+                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
+                    
+                    // Process any remaining data
+                    if (buffer.trim()) {
+                        try {
+                            processBuffer();
+                        } catch (err) {
+                            console.warn('Error processing final buffer:', err.message);
+                        }
+                    }
+
+                    if (!accumulatedResponse.trim()) {
+                        onError('No valid content received from the API. The response may be empty or malformed.');
+                        return;
+                    }
+                    onComplete(accumulatedResponse);
+                });
+
+                stream.on('error', (err) => {
+                    // Remove this stream from active streams array on error
+                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
+                    
+                    // Log detailed error info but send user-friendly message
+                    console.error('Stream error:', err.message, { 
+                        stack: err.stack,
+                        code: err.code,
+                        type: err.constructor.name
+                    });
+                    
+                    const errorMessage = this.createErrorMessage(err, 'resume tailoring');
+                    onError(errorMessage);
+                });
+
+                // Cleanup on errors
+                stream.on('close', () => {
+                    // Remove this stream from active streams array when closed
+                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
+                    
+                    // Only report error if we didn't get any content and this wasn't a normal close after completion
+                    if (!accumulatedResponse.trim()) {
+                        onError('Stream closed without receiving valid content. The connection may have been interrupted.');
+                    }
+                });
+                
+                // Return controller for external abort capability
+                return { abort: () => controller.abort() };
+
+            } catch (error) {
+                // Handle setup/connection errors with detailed logging
+                console.error('Error setting up streaming:', error.message, { 
+                    stack: error.stack,
+                    code: error.code,
+                    status: error.response?.status,
+                    statusText: error.response?.statusText
+                });
+                
+                // Retry logic for certain errors
+                if (retryCount < maxRetries && 
+                    (error.code === 'ECONNRESET' || error.code === 'ECONNABORTED' || 
+                     (error.response && error.response.status >= 500))) {
+                    
+                    retryCount++;
+                    console.log(`Retrying stream request (${retryCount}/${maxRetries})...`);
+                    
+                    // Exponential backoff
+                    const delay = this.retryDelay * Math.pow(2, retryCount - 1);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    
+                    return attemptRequest();
                 }
-
-                if (!accumulatedResponse.trim()) {
-                    onError('No valid content received from the API');
-                    return;
-                }
-                onComplete(accumulatedResponse);
-            });
-
-            response.data.on('error', (err) => {
-                onError('Stream error: ' + err.message);
-            });
-
-            // Cleanup on errors
-            response.data.on('close', () => {
-                if (!accumulatedResponse.trim()) {
-                    onError('Stream closed without receiving valid content');
-                }
-            });
-
-        } catch (error) {
-            console.error('Error setting up streaming:', error.response?.data || error.message);
-            onError(error.response?.data?.error?.message || error.message);
+                
+                // Create user-friendly error message based on error type
+                const errorMessage = this.createErrorMessage(error, 'resume tailoring');
+                onError(errorMessage);
+                
+                return { abort: () => {} }; // Return no-op function if request failed
+            }
+        };
+        
+        return attemptRequest();
+    }
+    
+    /**
+     * Clean up all active streams and pending requests
+     */
+    cleanup() {
+        const streamCount = this.activeStreams.length;
+        if (streamCount > 0 && process.env.NODE_ENV !== 'test') {
+            console.log(`Cleaning up ${streamCount} active streams`);
         }
+        
+        // Abort all active requests
+        this.activeStreams.forEach(({ controller, stream }) => {
+            try {
+                controller.abort();
+                // Remove all listeners to prevent memory leaks
+                if (stream && typeof stream.removeAllListeners === 'function') {
+                    stream.removeAllListeners('data');
+                    stream.removeAllListeners('end');
+                    stream.removeAllListeners('error');
+                    stream.removeAllListeners('close');
+                }
+            } catch (err) {
+                console.warn('Error while cleaning up stream:', err.message);
+            }
+        });
+        
+        // Clear active streams array
+        this.activeStreams = [];
+        
+        return streamCount; // Return count for testing purposes
+    }
+
+    // Add new helper method for stream validation
+    validateStream(stream) {
+        if (!stream || typeof stream.on !== 'function') {
+            throw new Error('Invalid stream response from API');
+        }
+        return stream;
+    }
+
+    // Add helper method for chunk processing
+    processStreamChunk(chunk, decoder) {
+        try {
+            const lines = decoder.decode(chunk).split('\n\n');
+            return lines
+                .map(line => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) return null;
+                    
+                    const data = trimmedLine.slice(5);
+                    // Explicitly handle [DONE] as a special case
+                    if (data === '[DONE]') return { done: true };
+                    
+                    try {
+                        const json = JSON.parse(data);
+                        const content = json.choices?.[0]?.delta?.content || '';
+                        return content ? { content } : null;
+                    } catch (e) {
+                        return null;
+                    }
+                })
+                .filter(Boolean);
+        } catch (err) {
+            console.warn('Error processing stream chunk:', err.message);
+            return [];
+        }
+    }
+
+    // Add helper method to detect if this is the final chunk
+    _isFinalChunk(chunk) {
+        return chunk && typeof chunk === 'string' && chunk.includes('[DONE]');
     }
 }
 

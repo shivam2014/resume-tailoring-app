@@ -1,6 +1,6 @@
 // @ts-nocheck
-// Use regular import for Jest compatibility instead of URL imports
-import { createTwoFilesPatch } from 'diff';
+// Use global Diff object from script tag instead of Node.js module
+// createTwoFilesPatch will be accessed via window.Diff
 
 // Variables for diff2html functions
 let html, parse;
@@ -50,7 +50,7 @@ async function initDiff2Html() {
     });
 }
 
-import { LatexASTAdapter } from '../../src/adapters/LatexASTAdapter.js';
+import { LatexASTAdapter } from './LatexASTAdapter.js';
 
 /**
  * DiffUtils class for handling LaTeX diff operations

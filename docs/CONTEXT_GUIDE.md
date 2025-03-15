@@ -17,8 +17,9 @@
 - Issues: None
 
 ## Next Steps
-1. Maintain section comparison logic
-2. Preserve CSS class names for diffs
+1. Fix failing tests in MistralHelper for malformed JSON responses
+2. Maintain section comparison logic
+3. Preserve CSS class names for diffs
 
 ## Decisions
 2025-03-14: Removed pdflatex and LaTeX.js dependencies

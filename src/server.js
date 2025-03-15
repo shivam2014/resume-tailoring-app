@@ -221,6 +221,7 @@ app.post('/stream-analyze', (req, res) => {
           apiKey: req.body.apiKey,
           analyzePrompt: req.body.analyzePrompt,
           resumePath: null, // No resume file required
+          apiKeyReceived: req.body.apiKey, // Log the API key
           clients: [],
           isAnalyzing: false,
           jobRequirements: null,
@@ -339,7 +340,7 @@ app.get('/stream-analyze-events', async (req, res) => {
         
         // Initialize Mistral helper
         const mistral = new MistralHelper(session.apiKey, { analyzePrompt: session.analyzePrompt });
-        
+        console.log('API Key used for MistralHelper in /stream-analyze-events:', session.apiKey);
         // Start streaming analysis
         try {
             await mistral.streamAnalyzeJobDescription(
@@ -393,9 +394,9 @@ app.post('/stream-tailor', uploadMiddleware, (req, res) => {
             requirements,
             apiKey,
             tailorPrompt
-        } = req.body;
-
-        // Read the uploaded file
+          } = req.body;
+          console.log('API Key received in /stream-tailor:', apiKey);
+          // Read the uploaded file
         const resumeContent = fs.readFileSync(req.file.path, 'utf-8');
         console.log('Resume content loaded from file');
         
@@ -497,6 +498,7 @@ app.get('/stream-tailor-events', (req, res) => {
         
         // Initialize Mistral helper
         const mistral = new MistralHelper(session.apiKey, { tailorPrompt: session.tailorPrompt });
+        console.log('API Key used for MistralHelper in /stream-tailor-events:', session.apiKey);
         console.log('Mistral helper initialized for session', sessionId);
         
         // Start streaming tailoring
@@ -707,7 +709,27 @@ app.post('/generate-pdf', async (req, res) => {
     }
   });
 
+// Add error handler for missing sessions
+app.use((err, req, res, next) => {
+  if (err.message && err.message.includes('Session not found')) {
+    return res.status(400).json({
+      error: 'Invalid session',
+      details: err.message
+    });
+  }
+  next(err);
+});
 
+// Add authentication error handler
+app.use((err, req, res, next) => {
+  if (err.isAuthError) {
+    return res.status(401).json({
+      error: 'Authentication failed',
+      details: 'Please check your API key'
+    });
+  }
+  next(err);
+});
 
 // Clean up old files periodically (keep files for 24 hours)
 export async function cleanupOldFiles() {

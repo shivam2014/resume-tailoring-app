@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">9.01% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/122</span>
+                <span class='fraction'>11/122</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">3.61% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/83</span>
+                <span class='fraction'>3/83</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">7.4% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/27</span>
+                <span class='fraction'>2/27</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">9.48% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/116</span>
+                <span class='fraction'>11/116</span>
             </div>
         
             
@@ -341,20 +341,20 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -591,38 +591,38 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// @ts-nocheck
-// Use regular import for Jest compatibility instead of URL imports
-import { createTwoFilesPatch } from 'diff';
+// Use global Diff object from script tag instead of Node.js module
+// createTwoFilesPatch will be accessed via window.Diff
 &nbsp;
 // Variables for diff2html functions
 let html, parse;
 &nbsp;
 // Skip ESM imports for diff2html and use global objects instead
-async function <span class="fstat-no" title="function not covered" >initDiff2Html(</span>) {
+async function initDiff2Html() {
     // For Jest environment, provide mock implementations
-<span class="cstat-no" title="statement not covered" >    if (typeof window === 'undefined') {</span>
+    <span class="missing-if-branch" title="if path not taken" >I</span>if (typeof window === 'undefined') {
 <span class="cstat-no" title="statement not covered" >        html = <span class="fstat-no" title="function not covered" >(d</span>iff, options) =&gt; <span class="cstat-no" title="statement not covered" >`&lt;div class="mock-diff-html"&gt;${diff}&lt;/div&gt;`;</span></span>
 <span class="cstat-no" title="statement not covered" >        parse = <span class="fstat-no" title="function not covered" >(d</span>iff) =&gt; <span class="cstat-no" title="statement not covered" >diff;</span></span>
 <span class="cstat-no" title="statement not covered" >        return Promise.resolve();</span>
     }
     
-<span class="cstat-no" title="statement not covered" >    return new Promise(<span class="fstat-no" title="function not covered" >(r</span>esolve, reject) =&gt; {</span>
+    return new Promise((resolve, reject) =&gt; {
         // Check if already loaded via script tag
-<span class="cstat-no" title="statement not covered" >        if (window.Diff2Html) {</span>
-<span class="cstat-no" title="statement not covered" >            html = window.Diff2Html.html;</span>
-<span class="cstat-no" title="statement not covered" >            parse = window.Diff2Html.parse;</span>
-<span class="cstat-no" title="statement not covered" >            console.log('Using pre-loaded Diff2Html from global scope');</span>
-<span class="cstat-no" title="statement not covered" >            resolve();</span>
-<span class="cstat-no" title="statement not covered" >            return;</span>
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (window.Diff2Html) {
+            html = window.Diff2Html.html;
+            parse = window.Diff2Html.parse;
+            console.log('Using pre-loaded Diff2Html from global scope');
+            resolve();
+            return;
         }
 &nbsp;
 <span class="cstat-no" title="statement not covered" >        console.log('Loading Diff2Html from CDN');</span>
@@ -651,7 +651,7 @@ async function <span class="fstat-no" title="function not covered" >initDiff2Htm
     });
 }
 &nbsp;
-import { LatexASTAdapter } from '../../src/adapters/LatexASTAdapter.js';
+import { LatexASTAdapter } from './LatexASTAdapter.js';
 &nbsp;
 /**
  * DiffUtils class for handling LaTeX diff operations
@@ -859,9 +859,9 @@ async function <span class="fstat-no" title="function not covered" >extractTextF
 &nbsp;
 &nbsp;
 // Load diff2html for the browser environment
-<span class="cstat-no" title="statement not covered" >if (typeof window !== 'undefined') {</span>
-<span class="cstat-no" title="statement not covered" >    try {</span>
-<span class="cstat-no" title="statement not covered" >        initDiff2Html();</span>
+<span class="missing-if-branch" title="else path not taken" >E</span>if (typeof window !== 'undefined') {
+    try {
+        initDiff2Html();
     } catch (error) {
 <span class="cstat-no" title="statement not covered" >        console.error('Failed to initialize diff2html:', error);</span>
     }
@@ -874,7 +874,7 @@ export { DiffUtils, createDiffHtml, highlightLatexSyntax, extractTextFromLatex }
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-03-15T08:22:26.080Z
+                at 2025-03-15T15:10:41.739Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

@@ -175,14 +175,41 @@ describe('MistralHelper', () => {
       const onChunk = jest.fn();
       const onComplete = jest.fn();
       const onError = jest.fn();
-
-      // Simulate malformed JSON response
-      jest.spyOn(mistralHelper.client, 'post').mockResolvedValue({
-        data: { choices: [{ delta: { content: '{malformed json' } }] }
+      
+      const { Readable } = require('stream');
+      const stream = new Readable({
+        read() {}
+      });
+      
+      jest.spyOn(mistralHelper.client, 'post').mockImplementation(() => {
+        return Promise.resolve({
+          data: stream
+        });
       });
 
-      await mistralHelper.streamAnalyzeJobDescription('test job', onChunk, onComplete, onError);
-      expect(onError).toHaveBeenCalled();
+      const streamPromise = new Promise((resolve) => {
+        mistralHelper.streamAnalyzeJobDescription('test job', onChunk, onComplete, (error) => {
+          onError(error);
+          resolve();
+        });
+      });
+
+      // Push malformed data after handlers are set up
+      process.nextTick(() => {
+        stream.push(Buffer.from(`data: ${JSON.stringify({
+          id: "test",
+          object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: { content: '{malformed json' } }]
+        })}\n\n`));
+        stream.push(Buffer.from('data: [DONE]\n\n'));
+        stream.push(null);
+      });
+
+      await streamPromise;
+      
+      expect(onError).toHaveBeenCalledWith(
+        expect.stringContaining('Error parsing job requirements')
+      );
     });
 
     it('should handle stream interruptions', async () => {
@@ -194,7 +221,7 @@ describe('MistralHelper', () => {
       jest.spyOn(mistralHelper.client, 'post').mockRejectedValue(new Error('Stream interrupted'));
 
       await mistralHelper.streamAnalyzeJobDescription('test job', onChunk, onComplete, onError);
-      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Stream interrupted'));
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Stream was interrupted, possibly due to network issues'));
     });
   });
 

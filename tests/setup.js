@@ -1,3 +1,8 @@
+import dotenv from 'dotenv';
+
+// Load environment variables early
+dotenv.config();
+
 // Mock browser environment for frontend tests
 class MockEventSource {
   constructor() {
@@ -111,3 +116,49 @@ global.HTMLElement = MockHTMLElement;
 
 // Console mocks to reduce noise during testing
 global.console.warn = jest.fn();
+
+// Mock Mistral API responses
+global.mockMistralApi = {
+  success: true,
+  data: {
+    choices: [{
+      message: {
+        content: '{"technicalSkills":["test skill"],"softSkills":["communication"]}'
+      }
+    }]
+  }
+};
+
+// Enhanced axios mock for Mistral API
+jest.mock('axios', () => ({
+  create: jest.fn(() => ({
+    post: jest.fn().mockImplementation((url, data) => {
+      if (!process.env.TEST_API_KEY) {
+        throw new Error('TEST_API_KEY not found in environment');
+      }
+      
+      const auth = data.headers?.Authorization;
+      if (!auth || !auth.includes(process.env.TEST_API_KEY)) {
+        return Promise.reject({
+          response: {
+            status: 401,
+            data: { error: 'Invalid API key' }
+          }
+        });
+      }
+      
+      return Promise.resolve(global.mockMistralApi);
+    }),
+    interceptors: {
+      response: {
+        use: jest.fn()
+      }
+    }
+  }))
+}));
+
+// Verify environment setup
+if (!process.env.TEST_API_KEY) {
+  console.error('TEST_API_KEY not found in environment variables');
+  process.exit(1);
+}

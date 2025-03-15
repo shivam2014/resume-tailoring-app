@@ -378,9 +378,20 @@ Work experience here
       expect(result).toContain('Senior Developer');
     });
 
+    let errorSpy;
+
+    beforeEach(() => {
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+    });
+
     it('should handle worker errors', async () => {
       const invalidLatex = '\\invalid{command}';
       await expect(extractTextFromLatex(invalidLatex)).rejects.toThrow('Invalid LaTeX');
+      expect(errorSpy).toHaveBeenCalledWith('Worker error:', expect.any(Error));
     });
 
     it('should handle invalid LaTeX', async () => {
