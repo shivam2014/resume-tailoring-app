@@ -15,7 +15,12 @@
 ## Architecture
 - Components:
   - LaTeX Worker: Handles AST parsing in background
+    - Processes LaTeX commands and environments
+    - Converts AST to plain text
   - Diff Utils: Manages text comparison and formatting
+    - Section extraction
+    - LaTeX text extraction
+    - Diff visualization
   - Server: Handles PDF generation (using pdfmake) and API endpoints
 
 ## Process

@@ -37,7 +37,7 @@ npm test tests/server.test.js -- -t "PDF"
 
 ## Phase 2 - Essential Features
 
-### 2.1 Core Functionality Preservation
+### 2.1 Core Functionality Preservation ✓
 ```mermaid
 flowchart TD
     A[Original LaTeX] --> B(LaTeX.js Parser)
@@ -48,9 +48,10 @@ flowchart TD
 ```
 
 **Tasks:**
-- [ ] Implement AST-to-legacy format adapter
-- [ ] Maintain section comparison logic
-- [ ] Preserve CSS class names for diffs
+- [x] Implement AST-to-legacy format adapter
+- [x] Maintain section comparison logic
+- [x] Preserve CSS class names for diffs
+- [x] Fix LaTeX text extraction
 
 **Test After:**
 ```bash

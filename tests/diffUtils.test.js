@@ -48,14 +48,65 @@ Technical skills here
 Work experience here
     `;
 
-    it('should extract sections from LaTeX', () => {
-      const sections = diffUtils.extractSections(sampleLatex);
+    beforeEach(() => {
+      // Mock Worker implementation
+      global.Worker = class MockWorker {
+        constructor() {
+          this.onmessage = null;
+        }
+        postMessage(latex) {
+          const sections = latex.match(/\\section\{([^}]+)\}([^\\]+)/g);
+          const ast = {
+            type: 'document',
+            content: []
+          };
+          
+          if (sections) {
+            sections.forEach(section => {
+              const [_, name, content] = section.match(/\\section\{([^}]+)\}([^\\]+)/);
+              const sectionNode = {
+                type: 'command',
+                name: 'section',
+                args: [{
+                  type: 'text',
+                  content: name.trim()
+                }],
+                nextSibling: {
+                  type: 'text',
+                  content: content.trim()
+                }
+              };
+              ast.content.push(sectionNode);
+              ast.content.push(sectionNode.nextSibling);
+            });
+          }
+          
+          setTimeout(() => {
+            if (this.onmessage) {
+              this.onmessage({
+                data: {
+                  status: 'success',
+                  ast: ast
+                }
+              });
+            }
+          }, 0);
+        }
+        terminate() {}
+      };
+    });
+
+    it('should extract sections from LaTeX', async () => {
+      console.log('Starting section extraction test');
+      console.log('Sample LaTeX:', sampleLatex);
+      const sections = await diffUtils.extractSections(sampleLatex);
+      console.log('Extracted sections:', sections);
       expect(sections).toHaveProperty('Skills');
       expect(sections).toHaveProperty('Experience');
     });
 
-    it('should maintain section content integrity', () => {
-      const sections = diffUtils.extractSections(sampleLatex);
+    it('should maintain section content integrity', async () => {
+      const sections = await diffUtils.extractSections(sampleLatex);
       expect(sections.Skills).toContain('Technical skills here');
       expect(sections.Experience).toContain('Work experience here');
     });
@@ -157,27 +208,7 @@ Work experience here
             content: []
           };
 
-          // Handle sections
-          const sectionMatch = data.match(/\\section\{([^}]+)\}/);
-          if (sectionMatch) {
-            ast.content.push({
-              type: 'text',
-              content: sectionMatch[1]
-            });
-          }
-
-          // Handle itemize environments
-          const items = data.match(/\\item\s+([^{}]+)/g);
-          if (items) {
-            ast.content.push({
-              type: 'text',
-              content: items.map(item =>
-                '• ' + item.replace(/\\item\s+/, '')
-              ).join('\n')
-            });
-          }
-
-          // Handle text formatting
+          // Handle text formatting first
           const text = data
             .replace(/\\textbf\{([^}]+)\}/g, '$1') // Bold
             .replace(/\\textit\{([^}]+)\}/g, '$1') // Italic
@@ -190,6 +221,39 @@ Work experience here
             ast.content.push({
               type: 'text',
               content: text
+            });
+          }
+
+          // Handle sections
+          const sections = data.match(/\\section\{([^}]+)\}([^\\]+)/g);
+          if (sections) {
+            sections.forEach(section => {
+              const [_, name, content] = section.match(/\\section\{([^}]+)\}([^\\]+)/);
+              const sectionNode = {
+                type: 'command',
+                name: 'section',
+                args: [{
+                  type: 'text',
+                  content: name.trim()
+                }],
+                nextSibling: {
+                  type: 'text',
+                  content: content.trim()
+                }
+              };
+              ast.content.push(sectionNode);
+              ast.content.push(sectionNode.nextSibling);
+            });
+          }
+
+          // Handle itemize environments
+          const items = data.match(/\\item\s+([^{}]+)/g);
+          if (items) {
+            ast.content.push({
+              type: 'text',
+              content: items.map(item =>
+                '• ' + item.replace(/\\item\s+/, '')
+              ).join('\n')
             });
           }
 
@@ -220,6 +284,48 @@ Work experience here
         window.latexWorker.terminate();
         delete window.latexWorker;
       }
+
+      // Mock Worker implementation
+      global.Worker = class MockWorker {
+        constructor() {
+          this.onmessage = null;
+        }
+        postMessage(data) {
+          setTimeout(() => {
+            if (data.includes('\\invalid')) {
+              if (this.onerror) {
+                this.onerror(new Error('Invalid LaTeX'));
+              }
+              return;
+            }
+
+            if (this.onmessage) {
+              const ast = {
+                type: 'document',
+                content: [{
+                  type: 'text',
+                  content: data
+                    .replace(/\\textbf\{([^}]+)\}/g, '$1')
+                    .replace(/\\textit\{([^}]+)\}/g, '$1')
+                    .replace(/\\emph\{([^}]+)\}/g, '$1')
+                    .replace(/\\section\{([^}]+)\}/g, '$1')
+                    .replace(/\\fontsize\{[^}]+\}\{[^}]+\}\\selectfont/g, '')
+                    .replace(/\\\\/, '\n')
+                    .trim()
+                }]
+              };
+              
+              this.onmessage({
+                data: {
+                  status: 'success',
+                  ast: ast
+                }
+              });
+            }
+          }, 0);
+        }
+        terminate() {}
+      };
     });
     it('should extract plain text from simple LaTeX', async () => {
       jest.setTimeout(30000); // Increase timeout to 30 seconds

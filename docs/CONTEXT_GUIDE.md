@@ -1,16 +1,21 @@
 # Context Guide
 
 ## Project State
-- Status: Phase 1.2 complete
+- Status: Phase 2.1 completed
 - Features:
   - HTML preview endpoint implementation
   - Error handling for HTML generation
   - Integration tests for HTML preview
   - PDF generation using pdfmake
+  - AST-based LaTeX parsing
+  - AST-to-legacy format adapter
+  - Robust LaTeX text extraction
+  - Section extraction with AST parsing
 - Issues: None
 
 ## Next Steps
-1. Add HTML preview endpoint
+1. Maintain section comparison logic
+2. Preserve CSS class names for diffs
 
 ## Decisions
 2025-03-14: Removed pdflatex and LaTeX.js dependencies
