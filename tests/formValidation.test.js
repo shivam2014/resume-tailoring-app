@@ -39,11 +39,10 @@ describe('Form validation', () => {
   test('handler.validateAnalyzeFields checks for required fields', () => {
     const mockFormData = {
       has: jest.fn().mockImplementation(key => {
-        return ['apiKey', 'jobDescription'].includes(key);
+        return ['apiKey'].includes(key); // Only include apiKey to trigger validation error
       }),
       get: jest.fn().mockImplementation(key => {
         if (key === 'apiKey') return 'test-key';
-        if (key === 'jobDescription') return 'test-description';
         return null;
       })
     };
@@ -61,13 +60,11 @@ describe('Form validation', () => {
     // Mock form data that includes all required fields
     const mockFormData = {
       has: jest.fn().mockImplementation(key => {
-        return ['apiKey', 'jobDescription', 'jobType', 'targetPosition'].includes(key);
+        return ['apiKey', 'jobDescription'].includes(key);
       }),
       get: jest.fn().mockImplementation(key => {
         if (key === 'apiKey') return 'test-key';
         if (key === 'jobDescription') return 'test-description';
-        if (key === 'jobType') return 'technical';
-        if (key === 'targetPosition') return 'Software Engineer';
         return null;
       })
     };

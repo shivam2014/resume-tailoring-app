@@ -38,7 +38,7 @@ describe('streamAnalyzeJob Validation', () => {
     const onError = jest.fn();
     const jobData = {
       content: { text: 'Some text' },
-      options: { jobType: 'analysis', targetPosition: 'Developer' }
+      options: {}
     };
     
     await streamAnalyzeJob(jobData, jest.fn(), jest.fn(), onError);
@@ -106,7 +106,7 @@ describe('streamAnalyzeJob Validation', () => {
     await streamAnalyzeJob(jobData, jest.fn(), jest.fn(), onError);
     
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("options.jobType")
+      message: expect.stringContaining("Missing required options")
     }));
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -128,7 +128,7 @@ describe('streamAnalyzeJob Validation', () => {
     const jobData = {
       sessionId: 'test-session',
       content: { text: 'Some text' },
-      options: { jobType: 'analysis', targetPosition: 'Developer' }
+      options: {}
     };
     
     await streamAnalyzeJob(jobData, jest.fn(), jest.fn(), onError);

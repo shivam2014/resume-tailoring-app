@@ -97,12 +97,12 @@ export class StreamHandler {
     cleanup(eventSource) {
         if (eventSource) {
             eventSource.close();
-            // Fix: Remove all event listeners properly
-            eventSource.removeEventListener('chunk');
-            eventSource.removeEventListener('complete');
-            eventSource.removeEventListener('status');
-            eventSource.removeEventListener('message');
-            eventSource.removeEventListener('error');
+            // Store event listeners when adding them
+            if (eventSource._chunkListener) eventSource.removeEventListener('chunk', eventSource._chunkListener);
+            if (eventSource._completeListener) eventSource.removeEventListener('complete', eventSource._completeListener);
+            if (eventSource._statusListener) eventSource.removeEventListener('status', eventSource._statusListener);
+            if (eventSource._messageListener) eventSource.removeEventListener('message', eventSource._messageListener);
+            if (eventSource._errorListener) eventSource.removeEventListener('error', eventSource._errorListener);
         }
     }
 
@@ -210,7 +210,7 @@ export class StreamHandler {
         }
 
         // Check required fields
-        const requiredFields = ['jobDescription', 'apiKey', 'jobType', 'targetPosition'];
+        const requiredFields = ['jobDescription', 'apiKey'];
         for (const field of requiredFields) {
             if (!formData.has(field) || !formData.get(field)) {
                 if (errorCallback) {
@@ -596,13 +596,6 @@ export async function streamAnalyzeJob(jobData, onProgress, onComplete, onError)
         if (!jobData.options || typeof jobData.options !== 'object') {
             throw new Error("Missing required field: options must be an object");
         }
-        
-        const requiredOptionFields = ['jobType', 'targetPosition'];
-        for (const field of requiredOptionFields) {
-            if (!jobData.options[field]) {
-                throw new Error(`Missing required field: options.${field}`);
-            }
-        }
 
         // Continue with the existing implementation after validation succeeds
         const response = await fetch('/stream-analyze', {
@@ -647,7 +640,7 @@ export function validateAnalyzeFields(formData) {
     }
 
     // Check all required fields
-    const requiredFields = ['jobDescription', 'apiKey', 'jobType', 'targetPosition'];
+    const requiredFields = ['jobDescription', 'apiKey'];
     for (const field of requiredFields) {
         if (!formData.has(field) || !formData.get(field)) {
             const error = new Error(`Missing required field: ${field}`);
@@ -674,7 +667,7 @@ export async function processJobAnalysis(formData, onUpdate, onError) {
       throw new Error("Missing form data");
     }
     
-    const requiredFields = ['apiKey', 'jobDescription', 'resumeFile', 'jobType', 'targetPosition'];
+    const requiredFields = ['apiKey', 'jobDescription', 'resumeFile'];
     const missingFields = requiredFields.filter(field => !formData[field]);
     
     if (missingFields.length > 0) {

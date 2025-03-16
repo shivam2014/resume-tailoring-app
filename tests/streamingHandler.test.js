@@ -59,8 +59,6 @@ describe('StreamHandler', () => {
       const formData = new FormData();
       formData.append('jobDescription', 'test job');
       formData.append('apiKey', 'test-key');
-      formData.append('jobType', 'technical'); // Add required jobType field
-      formData.append('targetPosition', 'Software Engineer'); // Add required targetPosition field
       
       await handler.streamAnalyzeJob(formData, callbacks);
       
