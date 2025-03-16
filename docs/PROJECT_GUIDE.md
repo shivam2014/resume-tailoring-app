@@ -187,6 +187,25 @@
    - Remove validation styling when the form is resubmitted
    - Clear previous error messages before validating again
 
+8. **"JSON parsing failed" errors in streaming API responses**
+   - Implement JSON boundary detection with brace tracking (opening/closing braces)
+   - Extract only the portion of the response that contains valid JSON
+   - Apply multiple fallback strategies when standard parsing fails
+   - Consider character-by-character parsing for very malformed responses
+   - Log the first and last N characters of problematic JSON for debugging
+   - For Mistral API streams, properly handle the [DONE] marker in various formats
+   - Use JSON recovery techniques like property extraction and reconstruction
+
+9. **Streaming API response handling**
+   - Always validate stream objects before using them
+   - Use TextDecoder for proper UTF-8 decoding
+   - Process chunks as they arrive rather than waiting for complete response
+   - Implement line buffering for proper event stream parsing
+   - Check for specific patterns like 'data: [DONE]' to detect stream end
+   - Add cleanup logic to prevent resource leaks
+   - Implement retry mechanisms with proper backoff strategies
+   - Provide clear error messages to distinguish between different failure modes
+
 ### Running Individual Test Files
 To run a specific test file without configuration issues:
 ```bash

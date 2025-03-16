@@ -486,11 +486,12 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                         const trimmedLine = line.trim();
                         if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
                         
-                        const data = trimmedLine.slice(5);
+                        const data = trimmedLine.slice(5).trim();
                         
-                        // Move this check outside of try/catch
+                        // Better handling of [DONE] marker
                         if (data === '[DONE]') {
-                            continue; // Skip processing [DONE]
+                            // End of stream marker, skip processing
+                            continue;
                         }
                         
                         try {
@@ -515,15 +516,11 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                                 }
                             }
                         } catch (e) {
-                            console.warn('Warning: Invalid chunk received:', e.message);
-                            // For [DONE] markers, just continue without error
-                            if (data === '[DONE]') {
-                                continue;
+                            // Skip warnings for [DONE] markers
+                            if (!data.includes('[DONE]')) {
+                                console.warn('Warning: Invalid chunk received:', e.message);
                             }
-                            // Only call onError for actual JSON parsing errors
-                            if (!this._isFinalChunk(data)) {
-                                console.warn('Invalid chunk format:', e.message);
-                            }
+                            continue;
                         }
                     }
                 };
@@ -555,62 +552,142 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                             return;
                         }
 
-                        // Clean up and parse the JSON
+                        // Clean up and extract proper JSON
+                        // First, find the starting and ending positions of the JSON object
                         let jsonStr = jsonBuffer.trim();
-                        let cleanedJson = jsonStr;
-
-                        // Only log if we need to fix the JSON structure
-                        if (!jsonStr.startsWith('{')) {
-                            console.log('Adding missing opening brace');
-                            cleanedJson = '{' + cleanedJson;
-                        }
-                        if (!jsonStr.endsWith('}')) {
-                            console.log('Adding missing closing brace');
-                            cleanedJson = cleanedJson + '}';
-                        }
-
-                        // Clean up the JSON buffer
-                        cleanedJson = cleanedJson
-                            .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
-                            .replace(/\\n/g, ' ') // Replace newlines with spaces
-                            .replace(/\s+/g, ' ') // Normalize whitespace
-                            .trim();
-
-                        // Only log if we actually had to make fixes
-                        if (cleanedJson !== jsonStr) {
-                            console.log('Applied JSON structure fixes');
-                        }
-
-                        // Attempt to parse the cleaned JSON
-                        const parsedJson = JSON.parse(cleanedJson);
+                        const startPos = jsonStr.indexOf('{');
                         
-                        // Log parsing success and content summary
-                        const categories = Object.keys(parsedJson);
-                        if (categories.length > 0) {
-                            console.log('Successfully parsed JSON with categories:', categories.join(', '));
-                        } else {
-                            console.warn('Warning: Parsed JSON is empty');
+                        if (startPos === -1) {
+                            console.error('No JSON object found in response');
+                            onError('Invalid response format: No JSON object found');
+                            return;
                         }
-
-                        // Ensure all array values are strings
-                        let hasArrays = false;
-                        for (const key in parsedJson) {
-                            if (Array.isArray(parsedJson[key])) {
-                                hasArrays = true;
-                                parsedJson[key] = parsedJson[key].map(item => 
-                                    typeof item === 'string' ? item : JSON.stringify(item)
-                                );
+                        
+                        // Find the matching closing brace by tracking opening and closing braces
+                        let openBraces = 0;
+                        let endPos = -1;
+                        
+                        for (let i = startPos; i < jsonStr.length; i++) {
+                            if (jsonStr[i] === '{') {
+                                openBraces++;
+                            } else if (jsonStr[i] === '}') {
+                                openBraces--;
+                                if (openBraces === 0) {
+                                    endPos = i + 1; // Position after the closing brace
+                                    break;
+                                }
                             }
                         }
                         
-                        if (hasArrays) {
-                            console.log('Normalized array values to strings');
+                        if (endPos === -1) {
+                            // If no proper closing brace found
+                            console.log('No proper JSON closure found, attempting to fix');
+                            jsonStr = jsonStr.substring(startPos) + '}';
+                        } else {
+                            // Extract just the proper JSON object
+                            jsonStr = jsonStr.substring(startPos, endPos);
+                            
+                            // Log if there's extra content after the JSON (likely cause of the error)
+                            if (endPos < jsonBuffer.length) {
+                                console.log(`Found ${jsonBuffer.length - endPos} extra characters after JSON closure`);
+                                console.log(`Extra content: ${jsonBuffer.substring(endPos, endPos + 20)}...`);
+                            }
                         }
+                        
+                        // Replace common problematic characters
+                        let cleanedJson = jsonStr
+                            .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
+                            .replace(/\\n/g, ' ')           // Replace newlines with spaces
+                            .replace(/\s+/g, ' ')           // Normalize whitespace
+                            .replace(/\[DONE\]/g, '')       // Remove any completion markers
+                            .replace(/\\\\/g, '\\')         // Fix escaped backslashes
+                            .trim();
 
-                        onComplete(parsedJson);
+                        try {
+                            // Log the first and last 50 chars for debugging
+                            if (process.env.NODE_ENV !== 'test') {
+                                const jsonLength = cleanedJson.length;
+                                console.log(`Attempting to parse JSON (length: ${jsonLength})`);
+                                if (jsonLength > 100) {
+                                    console.log(`Start: ${cleanedJson.substring(0, 50)}...`);
+                                    console.log(`End: ...${cleanedJson.substring(jsonLength - 50)}`);
+                                }
+                            }
+                            
+                            // Validate JSON structure before parsing
+                            if (!cleanedJson.startsWith('{') || !cleanedJson.endsWith('}')) {
+                                console.warn('JSON structure appears invalid, attempting to fix');
+                                if (!cleanedJson.startsWith('{')) cleanedJson = '{' + cleanedJson;
+                                if (!cleanedJson.endsWith('}')) cleanedJson = cleanedJson + '}';
+                            }
+
+                            // Attempt to parse the cleaned JSON
+                            const parsedJson = JSON.parse(cleanedJson);
+                            
+                            // Log parsing success and content summary
+                            const categories = Object.keys(parsedJson);
+                            if (categories.length > 0) {
+                                console.log('Successfully parsed JSON with categories:', categories.join(', '));
+                            } else {
+                                console.warn('Warning: Parsed JSON is empty');
+                            }
+
+                            // Ensure all array values are strings
+                            let hasArrays = false;
+                            for (const key in parsedJson) {
+                                if (Array.isArray(parsedJson[key])) {
+                                    hasArrays = true;
+                                    parsedJson[key] = parsedJson[key].map(item => 
+                                        typeof item === 'string' ? item : JSON.stringify(item)
+                                    );
+                                }
+                            }
+                            
+                            if (hasArrays) {
+                                console.log('Normalized array values to strings');
+                            }
+
+                            onComplete(parsedJson);
+                        } catch (error) {
+                            // When parsing fails, use more aggressive recovery techniques
+                            console.error(`JSON parsing failed: ${error.message}`);
+                            
+                            try {
+                                // Try to extract just a valid JSON object using regex
+                                const jsonMatch = cleanedJson.match(/\{(?:[^{}]|(?:\{[^{}]*\}))*\}/);
+                                if (jsonMatch) {
+                                    const extractedJson = jsonMatch[0];
+                                    console.log('Attempting to parse extracted JSON pattern');
+                                    const parsedJson = JSON.parse(extractedJson);
+                                    console.log('Recovered JSON using pattern extraction');
+                                    onComplete(parsedJson);
+                                    return;
+                                }
+                                
+                                // If no match found, try another approach - create a valid JSON structure
+                                console.log('Attempting to reconstruct JSON');
+                                
+                                // Extract key-value patterns that look like JSON properties
+                                const propertyMatches = cleanedJson.match(/"[^"]+"\s*:\s*(?:\[[^\]]*\]|"[^"]*"|[0-9]+|true|false|null)/g);
+                                
+                                if (propertyMatches && propertyMatches.length > 0) {
+                                    // Rebuild the JSON object from matched properties
+                                    const reconstructedJson = '{\n' + propertyMatches.join(',\n') + '\n}';
+                                    console.log('Reconstructed JSON from properties');
+                                    const parsedJson = JSON.parse(reconstructedJson);
+                                    onComplete(parsedJson);
+                                    return;
+                                }
+                                
+                                throw new Error('Could not extract or reconstruct valid JSON');
+                            } catch (fallbackError) {
+                                console.error('All JSON recovery attempts failed:', fallbackError.message);
+                                onError(`Error parsing job requirements: ${error.message}. Please check the format of your input.`);
+                            }
+                        }
                     } catch (error) {
-                        console.error('Failed to parse job requirements:', error.message, { stack: error.stack });
-                        onError(`Error parsing job requirements: ${error.message}. Please check the format of your input.`);
+                        console.error('Error in stream end processing:', error.message);
+                        onError(`Error processing job requirements: ${error.message}`);
                     }
                 });
 
@@ -928,8 +1005,290 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
 
     // Add helper method to detect if this is the final chunk
     _isFinalChunk(chunk) {
-        return chunk && typeof chunk === 'string' && chunk.includes('[DONE]');
+        if (!chunk || typeof chunk === 'string') return false;
+        
+        // Handle various forms of the [DONE] marker
+        const normalized = chunk.trim();
+        return normalized === '[DONE]' || 
+               normalized === 'data: [DONE]' || 
+               normalized.includes('[DONE]') ||
+               normalized.endsWith('[DONE]');
     }
 }
+
+/**
+ * Extracts and sanitizes valid JSON from potentially malformed text
+ * @param {string} text - The text that may contain JSON
+ * @returns {object|null} - Parsed JSON object or null if extraction failed
+ */
+function extractValidJSON(text) {
+    // Early return for [DONE] token
+    if (text === '[DONE]' || text.trim() === '[DONE]') {
+        console.log('Received [DONE] token, ignoring for JSON parsing');
+        return null;
+    }
+    
+    try {
+        // First attempt: direct parsing
+        return JSON.parse(text);
+    } catch (e) {
+        console.warn('Initial JSON parsing failed, attempting recovery:', e.message);
+        
+        try {
+            // Clean the text and remove any potential [DONE] tokens
+            let cleanedText = text
+                .replace(/\[DONE\]/g, '')
+                .replace(/^[^{]*/, '') // Remove anything before the first {
+                .replace(/}[^}]*$/, '}') // Remove anything after the last }
+                .trim();
+            
+            // Find balanced braces to extract the JSON object
+            let openBraces = 0;
+            let startIndex = -1;
+            let endIndex = -1;
+            
+            for (let i = 0; i < cleanedText.length; i++) {
+                if (cleanedText[i] === '{') {
+                    if (openBraces === 0) startIndex = i;
+                    openBraces++;
+                } else if (cleanedText[i] === '}') {
+                    openBraces--;
+                    if (openBraces === 0) {
+                        endIndex = i + 1;
+                        break;
+                    }
+                }
+            }
+            
+            // Extract the balanced JSON object
+            if (startIndex !== -1 && endIndex !== -1) {
+                const potentialJson = cleanedText.substring(startIndex, endIndex);
+                return JSON.parse(potentialJson);
+            }
+            
+            console.warn('Could not extract valid JSON using pattern matching. Content:',
+                cleanedText.length > 100 ?
+                    `${cleanedText.substring(0, 50)}...${cleanedText.substring(cleanedText.length - 50)}` :
+                    cleanedText
+            );
+            return null;
+        } catch (innerError) {
+            console.error('JSON recovery failed:', innerError.message);
+            return null;
+        }
+    }
+}
+
+/**
+ * Process the raw response from Mistral API
+ * @param {string} responseData - Raw response data
+ * @returns {object|string|null} - Processed response or null if invalid
+ */
+function processMistralResponse(responseData) {
+    // Check if the response is the [DONE] token
+    if (responseData === '[DONE]' || responseData.trim() === '[DONE]') {
+        return { done: true };
+    }
+    
+    // Try to parse the response as JSON
+    const parsedData = extractValidJSON(responseData);
+    if (parsedData) {
+        return parsedData;
+    }
+    
+    // If we can't parse it as JSON, return the raw data
+    return responseData;
+}
+
+async function processStreamingResponse(response, onChunk, onComplete, onError) {
+    try {
+      let fullContent = '';
+      let buffer = '';
+  
+      response.on('data', (chunk) => {
+        const chunkStr = chunk.toString();
+        buffer += chunkStr;
+  
+        // Process complete data events (separated by double newlines)
+        const lines = buffer.split('\n');
+        
+        // Process all complete lines
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim();
+          
+          // Skip empty lines
+          if (!line) continue;
+          
+          // Handle end of stream marker
+          if (line === 'data: [DONE]') {
+            console.log('Received end of stream marker');
+            continue;
+          }
+          
+          // Process data lines
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonData = line.substring(6); // Remove 'data: ' prefix
+              const parsedData = JSON.parse(jsonData);
+              
+              if (parsedData.choices && parsedData.choices[0]?.delta?.content) {
+                const content = parsedData.choices[0].delta.content;
+                fullContent += content;
+                onChunk(content);
+              }
+            } catch (e) {
+              console.warn(`Warning: Invalid chunk received: ${e.message}`, line);
+            }
+          }
+        }
+        
+        // Keep the last line in the buffer as it might be incomplete
+        buffer = lines[lines.length - 1];
+      });
+  
+      response.on('end', () => {
+        console.log('Processing final content...');
+        try {
+          // Extract content from final content if needed
+          let finalContent = fullContent.trim();
+          
+          // Debug logging to see what we're trying to parse
+          console.log('Content length:', finalContent.length);
+          if (finalContent.length > 100) {
+            console.log('Content start:', finalContent.substring(0, 50));
+            console.log('Content end:', finalContent.substring(finalContent.length - 50));
+          }
+          
+          // Find JSON boundaries more precisely
+          const firstBraceIndex = finalContent.indexOf('{');
+          let lastBraceIndex = -1;
+          
+          if (firstBraceIndex !== -1) {
+            // Find the matching closing brace for the opening brace
+            let openBraces = 0;
+            for (let i = firstBraceIndex; i < finalContent.length; i++) {
+              if (finalContent[i] === '{') openBraces++;
+              else if (finalContent[i] === '}') {
+                openBraces--;
+                if (openBraces === 0) {
+                  // This is the matching closing brace
+                  lastBraceIndex = i;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Extract only what appears to be valid JSON
+          if (firstBraceIndex !== -1 && lastBraceIndex !== -1) {
+            finalContent = finalContent.substring(firstBraceIndex, lastBraceIndex + 1);
+            console.log('Extracted JSON content with precise boundary detection');
+          } else {
+            console.log('Could not find precise JSON boundaries, using best-effort approach');
+            
+            // Fallback approach - try to find the last closing brace
+            if (finalContent.includes('{') && !finalContent.trim().endsWith('}')) {
+              console.log('Adding missing closing brace');
+              finalContent += '}';
+            }
+            
+            // Remove any trailing content after the JSON
+            const potentialEndIndex = finalContent.lastIndexOf('}') + 1;
+            if (potentialEndIndex > 0) {
+              finalContent = finalContent.substring(0, potentialEndIndex);
+              console.log('Truncated content to last closing brace');
+            }
+          }
+
+          // Additional JSON cleaning
+          finalContent = finalContent
+            .replace(/[\u201C\u201D]/g, '"') // Replace smart quotes
+            .replace(/\\n/g, ' ')           // Replace newlines with spaces
+            .replace(/[\r\n]/g, ' ')        // Remove actual newlines
+            .replace(/\s+/g, ' ')           // Normalize whitespace
+            .trim();
+          
+          console.log('Applied JSON structure fixes');
+
+          try {
+            // Parse the cleaned JSON
+            const parsedContent = JSON.parse(finalContent);
+            console.log('Successfully parsed JSON with keys:', Object.keys(parsedContent).join(', '));
+            
+            // Validate the parsed content has the expected structure
+            if (!parsedContent || typeof parsedContent !== 'object') {
+              throw new Error('Parsed content is not a valid object');
+            }
+            
+            onComplete(parsedContent);
+          } catch (jsonError) {
+            console.error('Failed to parse job requirements:', jsonError);
+            console.error('Content causing parse error:', finalContent);
+            onError(`Error parsing job requirements: ${jsonError.message}. Please check the format of your input.`);
+          }
+        } catch (error) {
+          console.error('Error processing final content:', error);
+          onError(`Error processing response: ${error.message}`);
+        }
+      });
+  
+      response.on('error', (error) => {
+        console.error('Error in API response stream:', error);
+        onError(`API response stream error: ${error.message}`);
+      });
+    } catch (error) {
+      console.error('Error processing streaming response:', error);
+      onError(`Error processing streaming response: ${error.message}`);
+    }
+  }
+  
+  // ...existing code...
+  
+  // Update the streamAnalyzeJob function to use the improved processing
+  async function streamAnalyzeJob(sessionData) {
+    const { sessionId, jobDescription, apiKey, analyzePrompt } = sessionData;
+    
+    try {
+      // ...existing code...
+  
+      // Make sure to use the updated processStreamingResponse function
+      await processStreamingResponse(
+        response,
+        (chunk) => {
+          // Send chunk to clients
+          sessionData.clients.forEach(client => {
+            client.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+          });
+        },
+        (parsedJobRequirements) => {
+          // Handle successful completion
+          sessionData.jobRequirements = parsedJobRequirements;
+          sessionData.isAnalyzing = false;
+          
+          sessionData.clients.forEach(client => {
+            client.write(`data: ${JSON.stringify({ 
+              type: 'complete', 
+              requirements: parsedJobRequirements 
+            })}\n\n`);
+          });
+        },
+        (error) => {
+          // Handle error
+          sessionData.error = error;
+          sessionData.isAnalyzing = false;
+          
+          console.error(`Error in analysis session ${sessionId}:`, error);
+          
+          sessionData.clients.forEach(client => {
+            client.write(`data: ${JSON.stringify({ type: 'error', message: error })}\n\n`);
+          });
+        }
+      );
+    } catch (error) {
+      // ...existing error handling...
+    }
+  }
+  
+  // ...existing code...
 
 export default MistralHelper;

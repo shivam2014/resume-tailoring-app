@@ -398,9 +398,23 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
         let jobRequirements = null;
         
         try {
+            // Get and sanitize job description
+            let jobDescription = formData.get('jobDescription');
+            
+            // More thorough sanitization of input
+            // Remove non-printable characters and control characters
+            jobDescription = jobDescription.replace(/[\x00-\x1F\x7F-\x9F]/g, ' ');
+            
+            // Remove invalid JSON characters that could cause parsing issues
+            jobDescription = jobDescription.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, ' ');
+            
+            // Escape quotes and backslashes that might break JSON
+            jobDescription = jobDescription.replace(/\\(?!["\\/bfnrt])/g, '\\\\');
+            jobDescription = jobDescription.replace(/"/g, '\\"');
+            
             // Convert FormData to URL-encoded format
             const urlEncodedData = new URLSearchParams();
-            urlEncodedData.append('jobDescription', formData.get('jobDescription'));
+            urlEncodedData.append('jobDescription', jobDescription);
             urlEncodedData.append('apiKey', formData.get('apiKey'));
             urlEncodedData.append('analyzePrompt', formData.get('analyzePrompt'));
             urlEncodedData.append('tailorPrompt', formData.get('tailorPrompt'));
@@ -416,12 +430,56 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
                     console.log('Raw job requirements response:', fullResponse); // Debug raw response
                     
                     try {
-                        // Ensure we have valid requirements object
+                        // Enhanced JSON parsing with better error recovery
                         if (typeof fullResponse === 'string') {
-                            jobRequirements = JSON.parse(fullResponse);
+                            // Clean the response string before parsing
+                            const cleanedResponse = fullResponse
+                                .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ') // Replace control chars with spaces
+                                .replace(/\n/g, '\\n')
+                                .replace(/\r/g, '\\r')
+                                .replace(/\t/g, '\\t')
+                                .replace(/\\/g, '\\\\')
+                                .replace(/"/g, '\\"')
+                                .trim();
+                            
+                            // Try to fix common JSON issues
+                            let jsonToTry = cleanedResponse;
+                            
+                            // Try to parse with different approaches
+                            try {
+                                // First try direct parsing
+                                jobRequirements = JSON.parse(cleanedResponse);
+                            } catch (parseError1) {
+                                console.warn('Initial JSON parsing failed:', parseError1);
+                                
+                                try {
+                                    // Second attempt: try to extract valid JSON using regex
+                                    const jsonMatch = cleanedResponse.match(/(\{.*\})/);
+                                    if (jsonMatch && jsonMatch[0]) {
+                                        jobRequirements = JSON.parse(jsonMatch[0]);
+                                    } else {
+                                        throw new Error('Could not extract valid JSON');
+                                    }
+                                } catch (parseError2) {
+                                    console.warn('JSON extraction failed:', parseError2);
+                                    
+                                    // Last resort: create a simple object with the text
+                                    jobRequirements = {
+                                        raw: cleanedResponse,
+                                        parseError: 'Could not parse response as JSON'
+                                    };
+                                    
+                                    addLog('Warning: Could not parse job requirements as JSON', 'warning');
+                                }
+                            }
                         }
                     } catch (parseError) {
                         console.error('Failed to parse requirements:', parseError);
+                        // Create fallback object with the raw text
+                        jobRequirements = {
+                            raw: fullResponse,
+                            parseError: parseError.message
+                        };
                     }
                     
                     updateStreamingStatus(streamingContainer, 'Analysis complete!');
@@ -436,7 +494,21 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
                     if (jobRequirements && typeof jobRequirements === 'object' && Object.keys(jobRequirements).length > 0) {
                         console.log('Processing requirements:', jobRequirements); // Debug processed requirements
                         
+                        // Check if we have a parse error first
+                        if (jobRequirements.parseError) {
+                            requirementsHtml += `
+                                <div class="parse-error-notice">
+                                    <h4>⚠️ JSON Parsing Issue</h4>
+                                    <p>The job analysis contains data that couldn't be properly structured. 
+                                    You can still continue with resume tailoring, but the requirements may not be displayed correctly.</p>
+                                </div>`;
+                        }
+                        
+                        // Process each category
                         Object.entries(jobRequirements).forEach(([category, items]) => {
+                            // Skip the error fields
+                            if (category === 'parseError' || category === 'raw') return;
+                            
                             const formattedCategory = category.replace(/([A-Z])/g, ' $1').trim();
                             requirementsHtml += `<h4>${formattedCategory}</h4>`;
                             requirementsHtml += '<ul class="requirements-list">';
@@ -481,7 +553,7 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
                         console.error('Requirements list element not found!');
                     }
                     
-                    // Continue with resume tailoring only if we have requirements
+                    // Continue with resume tailoring even with partial requirements
                     if (jobRequirements && Object.keys(jobRequirements).length > 0) {
                         streamTailorResume(originalContent, jobRequirements, formData.get('apiKey'), formData.get('tailorPrompt'));
                     } else {
@@ -500,6 +572,14 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
                         <div class="error-message">
                             <h3>Error During Analysis</h3>
                             <p>${error}</p>
+                            <div class="error-recovery">
+                                <p>This may be due to a JSON parsing issue. You can try:</p>
+                                <ul>
+                                    <li>Simplifying the job description</li>
+                                    <li>Removing special characters</li>
+                                    <li>Breaking down the analysis into smaller parts</li>
+                                </ul>
+                            </div>
                         </div>`;
                 }
             });
