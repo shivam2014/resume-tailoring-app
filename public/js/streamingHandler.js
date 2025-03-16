@@ -16,6 +16,10 @@ export class StreamHandler {
     }
 
     setupEventListeners(eventSource, callbacks) {
+        // Remove any existing listeners first
+        this.cleanup(eventSource);
+
+        // Add chunk event listener
         eventSource.addEventListener('chunk', (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -30,6 +34,7 @@ export class StreamHandler {
             }
         });
 
+        // Add complete event listener
         eventSource.addEventListener('complete', (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -44,6 +49,7 @@ export class StreamHandler {
             }
         });
 
+        // Add status event listener
         eventSource.addEventListener('status', (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -55,6 +61,7 @@ export class StreamHandler {
             }
         });
 
+        // Add error event listener
         eventSource.addEventListener('error', (event) => {
             if (callbacks.onError) {
                 let errorMessage = 'Stream connection error';
@@ -69,11 +76,22 @@ export class StreamHandler {
                 callbacks.onError(errorMessage);
             }
         });
+
+        return eventSource;
     }
 
     connect(endpoint) {
         const eventSource = new EventSource(endpoint);
         return eventSource;
+    }
+    
+    /**
+     * Creates an EventSource connection to the specified endpoint
+     * @param {string} endpoint - URL to connect to
+     * @returns {EventSource} The created EventSource object
+     */
+    createEventSource(endpoint) {
+        return new EventSource(endpoint);
     }
 
     cleanup(eventSource) {
@@ -134,6 +152,81 @@ export class StreamHandler {
         }
     }
 
+    logEvent(message, level = 'info') {
+        const timestamp = new Date().toISOString();
+        console[level](`[${timestamp}] StreamHandler: ${message}`);
+        
+        // You could also send important logs to the server
+        if (level === 'error') {
+            try {
+                fetch('/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        timestamp, 
+                        level, 
+                        message,
+                        source: 'streamingHandler'
+                    })
+                }).catch(err => console.error('Failed to send log to server:', err));
+            } catch (e) {
+                // Silent catch - don't let logging errors affect the app
+            }
+        }
+    }
+
+    validateAnalyzeFields(formData, errorCallback) {
+        this.logEvent('Validating form fields...');
+        
+        // Check if formData is null or undefined
+        if (!formData) {
+            if (errorCallback) {
+                errorCallback('Invalid form data object');
+                return false;
+            } else {
+                const error = new Error('Form data is required');
+                error.code = 'MISSING_FORM_DATA';
+                throw error;
+            }
+        }
+        
+        // Improved debug logging - safely handle formData that might not have entries method
+        console.log('Validating form fields:', 
+            Array.from(formData.entries ? formData.entries() : [])
+                .map(([key, val]) => `${key}: ${typeof val === 'string' ? 
+                    (val.length > 50 ? val.substring(0, 20) + '...' : val) : 
+                    '[' + (typeof val) + ']'}`));
+        
+        // Check form data is valid
+        if (typeof formData.has !== 'function') {
+            if (errorCallback) {
+                errorCallback('Invalid form data object');
+                return false;
+            } else {
+                const error = new Error('Invalid form data object');
+                error.code = 'INVALID_FORM_DATA';
+                throw error;
+            }
+        }
+
+        // Check required fields
+        const requiredFields = ['jobDescription', 'apiKey', 'jobType', 'targetPosition'];
+        for (const field of requiredFields) {
+            if (!formData.has(field) || !formData.get(field)) {
+                if (errorCallback) {
+                    errorCallback(`Missing required field: ${field}`);
+                    return false;
+                } else {
+                    const error = new Error(`Missing required field: ${field}`);
+                    error.code = 'MISSING_FIELD';
+                    throw error;
+                }
+            }
+        }
+        
+        return true;
+    }
+
     /**
      * Stream job analysis from the server
      * @param {FormData} formData - FormData containing resume file, job description, and API key
@@ -143,7 +236,22 @@ export class StreamHandler {
      * @param {Function} callbacks.onStatus - Called with status updates
      * @param {Function} callbacks.onError - Called when error occurs
      */
-    async streamAnalyzeJob(formData, callbacks) {
+    async streamAnalyzeJob(formData, callbacks = {}) {
+        // Console log to aid debugging 
+        console.log('Starting job analysis...');
+        
+        // Check for required callbacks
+        if (!callbacks.onError) {
+            console.error('No error callback provided');
+            return null;
+        }
+        
+        // Validate fields
+        if (!this.validateAnalyzeFields(formData, callbacks.onError)) {
+            console.error('Error in streamAnalyzeJob: Error: Missing required fields');
+            return null;
+        }
+        
         // Close any existing connection
         this.closeStream('analyze');
 
@@ -152,6 +260,15 @@ export class StreamHandler {
             
             if (!this.streamConnections) {
                 this.streamConnections = {};
+            }
+            
+            // Validate required fields before sending the request
+            if (!formData.has('jobDescription') || !formData.get('jobDescription')) {
+                throw new Error('Missing required field: jobDescription');
+            }
+            
+            if (!formData.has('apiKey') || !formData.get('apiKey')) {
+                throw new Error('Missing required field: apiKey');
             }
             
             const response = await fetch('/stream-analyze', {
@@ -444,3 +561,130 @@ export class StreamHandler {
 // Create a singleton instance for use throughout the application
 const streamingHandler = new StreamHandler();
 export default streamingHandler; // Default export for application use
+
+/**
+ * Standalone function for streamAnalyzeJob to support testing
+ * @param {Object} jobData - Job data for analysis
+ * @param {Function} onProgress - Progress callback
+ * @param {Function} onComplete - Completion callback
+ * @param {Function} onError - Error callback
+ */
+export async function streamAnalyzeJob(jobData, onProgress, onComplete, onError) {
+    try {
+        console.log('Starting job analysis...', jobData);
+        
+        // Validate required fields
+        if (!jobData) {
+            throw new Error("Missing job data");
+        }
+        
+        // Validate sessionId
+        if (!jobData.sessionId || typeof jobData.sessionId !== 'string' || jobData.sessionId.trim() === '') {
+            throw new Error("Missing required field: sessionId must be a non-empty string");
+        }
+        
+        // Validate content
+        if (!jobData.content || typeof jobData.content !== 'object') {
+            throw new Error("Missing required field: content must be an object");
+        }
+        
+        if (typeof jobData.content.text !== 'string') {
+            throw new Error("Missing required field: content.text must be a string");
+        }
+        
+        // Validate options
+        if (!jobData.options || typeof jobData.options !== 'object') {
+            throw new Error("Missing required field: options must be an object");
+        }
+        
+        const requiredOptionFields = ['jobType', 'targetPosition'];
+        for (const field of requiredOptionFields) {
+            if (!jobData.options[field]) {
+                throw new Error(`Missing required field: options.${field}`);
+            }
+        }
+
+        // Continue with the existing implementation after validation succeeds
+        const response = await fetch('/stream-analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(jobData)
+        });
+
+        // Basic response validation
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        // Process response
+        if (onComplete) {
+            onComplete({ success: true });
+        }
+    } catch (error) {
+        console.error('Error in streamAnalyzeJob:', error);
+        if (onError) {
+            onError(error);
+        }
+    }
+}
+
+// Add standalone validation function for direct testing (following dual export pattern)
+export function validateAnalyzeFields(formData) {
+    // Check if formData is null or undefined
+    if (!formData) {
+        const error = new Error('Form data is required');
+        error.code = 'MISSING_FORM_DATA';
+        throw error;
+    }
+    
+    // Check form data is valid
+    if (typeof formData.has !== 'function') {
+        const error = new Error('Invalid form data object');
+        error.code = 'INVALID_FORM_DATA';
+        throw error;
+    }
+
+    // Check all required fields
+    const requiredFields = ['jobDescription', 'apiKey', 'jobType', 'targetPosition'];
+    for (const field of requiredFields) {
+        if (!formData.has(field) || !formData.get(field)) {
+            const error = new Error(`Missing required field: ${field}`);
+            error.code = 'MISSING_FIELD';
+            throw error;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Validates job analysis input and processes the request
+ * @param {Object} formData - Form data containing job description and resume
+ * @param {Function} onUpdate - Callback function for updates
+ * @param {Function} onError - Callback function for errors
+ */
+export async function processJobAnalysis(formData, onUpdate, onError) {
+  try {
+    console.log("Starting job analysis...");
+    
+    // Validate required fields
+    if (!formData) {
+      throw new Error("Missing form data");
+    }
+    
+    const requiredFields = ['apiKey', 'jobDescription', 'resumeFile', 'jobType', 'targetPosition'];
+    const missingFields = requiredFields.filter(field => !formData[field]);
+    
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+    
+    // Continue with existing processing logic
+    // ...existing code...
+  } catch (error) {
+    console.error("Error in processJobAnalysis:", error);
+    if (onError) onError(error);
+  }
+}

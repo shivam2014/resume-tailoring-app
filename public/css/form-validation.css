@@ -1,0 +1,25 @@
+/* Form validation styling */
+
+/* Only style fields with the error-field class, not all empty inputs */
+input.error-field, 
+textarea.error-field, 
+select.error-field {
+  border: 2px solid var(--error, #ff3333);
+  background-color: var(--error-bg, #fff0f0);
+}
+
+/* Default styling for empty fields - no error indication */
+input:not(.error-field):empty,
+textarea:not(.error-field):empty,
+select:not(.error-field):empty {
+  border: 1px solid var(--border-color, #ccc);
+  background-color: var(--input-bg, #fff);
+}
+
+/* Error message styling */
+.field-error {
+  color: var(--error, #ff3333);
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+  display: inline-block;
+}

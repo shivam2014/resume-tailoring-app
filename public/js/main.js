@@ -1,5 +1,5 @@
 import { initCollapsibles, observeDOMChanges } from './util.js';
-import streamingHandler from './streamingHandler.js';
+import streamingHandler, { processJobAnalysis } from './streamingHandler.js';
 
 // Try importing diffUtils, with improved error handling
 let createDiffHtml, highlightLatexSyntax;
@@ -586,22 +586,110 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
     async function handleSubmit(e) {
         e.preventDefault();
         
+        // Clear previous errors
+        document.querySelectorAll('.field-error').forEach(el => el.remove());
+        
+        // Reset validation styling on all form fields
+        document.querySelectorAll('#resumeForm input, #resumeForm textarea, #resumeForm select').forEach(field => {
+            field.classList.remove('error-field');
+        });
+        
+        // Track if we have any validation errors
+        let hasErrors = false;
+        
+        const formData = new FormData();
+        
+        // Validate API key
         const apiKey = document.getElementById('apiKey').value.trim();
         if (!apiKey) {
+            // Add visual indicator next to the field
+            const apiKeyField = document.getElementById('apiKey');
+            apiKeyField.classList.add('error-field'); // Add error class to the field itself
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error';
+            errorSpan.textContent = 'API key is required';
+            apiKeyField.parentNode.appendChild(errorSpan);
+            
             addLog('Please enter your Mistral API key first', 'error');
+            hasErrors = true;
+        } else {
+            formData.append('apiKey', apiKey);
+        }
+
+        // Validate resume file
+        const resumeFile = document.getElementById('resumeFile').files[0];
+        if (!resumeFile) {
+            // Add visual indicator next to the field
+            const resumeFileField = document.getElementById('resumeFile');
+            resumeFileField.classList.add('error-field'); // Add error class to the field itself
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error';
+            errorSpan.textContent = 'Resume file is required';
+            resumeFileField.parentNode.appendChild(errorSpan);
+            
+            addLog('Please upload a resume file', 'error');
+            hasErrors = true;
+        }
+        
+        // Validate job description
+        const jobDescription = document.getElementById('jobDescription').value.trim();
+        if (!jobDescription) {
+            // Add visual indicator next to the field
+            const jobDescField = document.getElementById('jobDescription');
+            jobDescField.classList.add('error-field'); // Add error class to the field itself
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error';
+            errorSpan.textContent = 'Job description is required';
+            jobDescField.parentNode.appendChild(errorSpan);
+            
+            addLog('Please enter a job description', 'error');
+            hasErrors = true;
+        } else {
+            formData.append('jobDescription', jobDescription);
+        }
+        
+        // Validate job type
+        const jobType = document.getElementById('jobType').value.trim();
+        if (!jobType) {
+            // Add visual indicator next to the field
+            const jobTypeField = document.getElementById('jobType');
+            jobTypeField.classList.add('error-field'); // Add error class to the field itself
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error';
+            errorSpan.textContent = 'Job type is required';
+            jobTypeField.parentNode.appendChild(errorSpan);
+            
+            addLog('Please select a job type', 'error');
+            hasErrors = true;
+        } else {
+            formData.append('jobType', jobType);
+        }
+        
+        // Validate target position
+        const targetPosition = document.getElementById('targetPosition').value.trim();
+        if (!targetPosition) {
+            // Add visual indicator next to the field
+            const targetPositionField = document.getElementById('targetPosition');
+            targetPositionField.classList.add('error-field'); // Add error class to the field itself
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error';
+            errorSpan.textContent = 'Target position is required';
+            targetPositionField.parentNode.appendChild(errorSpan);
+            
+            addLog('Please enter a target position', 'error');
+            hasErrors = true;
+        } else {
+            formData.append('targetPosition', targetPosition);
+        }
+        
+        // Exit early if any validation errors
+        if (hasErrors) {
             return;
         }
 
-        const formData = new FormData();
-        const resumeFile = document.getElementById('resumeFile').files[0];
-        const jobDescription = document.getElementById('jobDescription').value;
+        // Add the remaining form values
         const analyzePrompt = document.getElementById('analyzePrompt').value;
         const tailorPrompt = document.getElementById('tailorPrompt').value;
-        
-        if (!resumeFile || !jobDescription) {
-            addLog('Please provide both a resume file and job description', 'error');
-            return;
-        }
 
         // Store original content
         originalContent = await resumeFile.text();
@@ -615,8 +703,6 @@ Return only the modified LaTeX content. Do not add any new experiences or skills
         }
         
         formData.append('resumeFile', resumeFile);
-        formData.append('jobDescription', jobDescription);
-        formData.append('apiKey', apiKey);
         formData.append('analyzePrompt', analyzePrompt);
         formData.append('tailorPrompt', tailorPrompt);
         
@@ -717,3 +803,225 @@ window.addEventListener('load', function() {
         window.reinitializeCollapsibles();
     }
 });
+
+// Options:
+// 1. Remove this standalone function if not needed
+// OR
+// 2. Define the missing helper functions it references:
+function showError(message) {
+  const errorElement = document.getElementById('error-message');
+  errorElement.textContent = message;
+  errorElement.classList.remove('hidden');
+  setTimeout(() => {
+    errorElement.classList.add('hidden');
+  }, 5000);
+}
+
+function resetUI() {
+  // Clear any previous results or error messages
+  const errorMessages = document.querySelectorAll('.error-message');
+  errorMessages.forEach(el => el.remove());
+  
+  // Reset other UI elements as needed
+}
+
+// Define other missing helper functions: handleAnalysisChunk, handleAnalysisComplete, 
+// handleAnalysisError, handleStatusUpdate, showLoader
+
+// Fix the standalone handleSubmit function to use the correct field IDs
+function handleSubmit(event) {
+    event.preventDefault();
+    
+    const jobDescriptionInput = document.getElementById('jobDescription');
+    const apiKeyInput = document.getElementById('apiKey');
+    
+    // Add validation here to prevent the request if fields are empty
+    if (!jobDescriptionInput || !jobDescriptionInput.value.trim()) {
+        showError('Please enter a job description');
+        return;
+    }
+    
+    if (!apiKeyInput || !apiKeyInput.value.trim()) {
+        showError('Please enter an API key');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('jobDescription', jobDescriptionInput.value.trim());
+    formData.append('apiKey', apiKeyInput.value.trim());
+    
+    // Log for debugging
+    console.log('Submitting form with fields:', 
+        Array.from(formData.entries()).map(([key]) => key).join(', '));
+    
+    resetUI();
+    showLoader(true);
+    
+    streamHandler.streamAnalyzeJob(formData, {
+        onChunk: handleAnalysisChunk,
+        onComplete: handleAnalysisComplete,
+        onError: handleAnalysisError,
+        onStatusUpdate: handleStatusUpdate
+    });
+}
+
+// Implement missing helper functions
+function showFieldError(fieldId, message) {
+  const field = document.getElementById(fieldId);
+  field.classList.add('error-field'); // Use consistent class name
+  const errorSpan = document.createElement('span');
+  errorSpan.className = 'error-message';
+  errorSpan.textContent = message;
+  field.parentNode.appendChild(errorSpan);
+  setTimeout(() => {
+    field.classList.remove('error-field'); // Use consistent class name
+    errorSpan.remove();
+  }, 5000);
+}
+
+function showLoader(show) {
+  let loader = document.getElementById('loader');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.id = 'loader';
+    loader.className = 'loader';
+    document.body.appendChild(loader);
+  }
+  
+  loader.style.display = show ? 'block' : 'none';
+}
+
+function handleAnalysisChunk(chunk) {
+  console.log('Received chunk:', chunk.substring(0, 50) + (chunk.length > 50 ? '...' : ''));
+}
+
+function handleAnalysisComplete(results) {
+  console.log('Analysis complete:', results);
+  showLoader(false);
+}
+
+function handleAnalysisError(error) {
+  console.error('Analysis error:', error);
+  showError(error);
+  showLoader(false);
+}
+
+function handleStatusUpdate(status, message) {
+  console.log(`Status: ${status} - ${message}`);
+}
+
+/**
+ * Handles form submission for job analysis
+ * @param {Event} event - Submit event
+ */
+const handleSubmit = async (event) => {
+  event.preventDefault();
+  
+  // Reset UI state
+  resetUI();
+  
+  // Validate form fields
+  if (!validateForm()) {
+    return;
+  }
+  
+  const apiKey = document.getElementById('apiKey').value;
+  const jobDescription = document.getElementById('jobDescription').value;
+  const resumeFile = document.getElementById('resumeFile').files[0];
+  const analyzePrompt = document.getElementById('analyzePrompt').value;
+  const tailorPrompt = document.getElementById('tailorPrompt').value;
+  const jobType = document.getElementById('jobType').value;
+  const targetPosition = document.getElementById('targetPosition').value;
+  
+  // Create form data with all required fields
+  const formData = {
+    apiKey,
+    jobDescription,
+    resumeFile,
+    analyzePrompt,
+    tailorPrompt,
+    jobType,
+    targetPosition
+  };
+  
+  // Call processJobAnalysis with complete form data (instead of streamAnalyzeJob)
+  processJobAnalysis(formData, updateUI, showError);
+};
+
+/**
+ * Validates the form fields and shows validation errors
+ * @returns {Boolean} True if form is valid, false otherwise
+ */
+const validateForm = () => {
+  const apiKey = document.getElementById('apiKey').value;
+  const jobDescription = document.getElementById('jobDescription').value;
+  const resumeFile = document.getElementById('resumeFile').files[0];
+  const jobType = document.getElementById('jobType').value;
+  const targetPosition = document.getElementById('targetPosition').value;
+  
+  let isValid = true;
+  
+  // Clear previous validation errors
+  clearValidationErrors();
+  
+  // Check required fields
+  if (!apiKey) {
+    showFieldError('apiKey', 'API Key is required');
+    isValid = false;
+  }
+  
+  if (!jobDescription) {
+    showFieldError('jobDescription', 'Job description is required');
+    isValid = false;
+  }
+  
+  if (!resumeFile) {
+    showFieldError('resumeFile', 'Resume file is required');
+    isValid = false;
+  }
+  
+  if (!jobType) {
+    showFieldError('jobType', 'Job type is required');
+    isValid = false;
+  }
+  
+  if (!targetPosition) {
+    showFieldError('targetPosition', 'Target position is required');
+    isValid = false;
+  }
+  
+  return isValid;
+};
+
+/**
+ * Shows an error message for a specific form field
+ * @param {String} fieldId - Field ID to show error for
+ * @param {String} message - Error message to display
+ */
+const showFieldError = (fieldId, message) => {
+  const field = document.getElementById(fieldId);
+  field.classList.add('error-field');
+  
+  // Create error message element
+  const errorElement = document.createElement('div');
+  errorElement.className = 'validation-error';
+  errorElement.textContent = message;
+  
+  // Insert after the field
+  field.parentNode.insertBefore(errorElement, field.nextSibling);
+};
+
+/**
+ * Clears all validation errors from the form
+ */
+const clearValidationErrors = () => {
+  // Remove all error-field classes
+  document.querySelectorAll('.error-field').forEach(field => {
+    field.classList.remove('error-field');
+  });
+  
+  // Remove all validation error messages
+  document.querySelectorAll('.validation-error').forEach(error => {
+    error.remove();
+  });
+};

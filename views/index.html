@@ -9,6 +9,7 @@
     <!-- Only load diff, diff2html will be loaded dynamically -->
     <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js" defer></script>
     <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/form-validation.css">
 </head>
 <body>
     <div class="container">
@@ -28,6 +29,24 @@
             <div class="form-group">
                 <label for="jobDescription">Job Description</label>
                 <textarea id="jobDescription" class="prompt-textarea" placeholder="Paste the job description here..." required></textarea>
+            </div>
+            
+            <!-- New form fields for jobType and targetPosition -->
+            <div class="form-group">
+                <label for="jobType">Job Type</label>
+                <select id="jobType" class="form-control" required>
+                    <option value="">Select Job Type</option>
+                    <option value="technical">Technical</option>
+                    <option value="management">Management</option>
+                    <option value="entry-level">Entry Level</option>
+                    <option value="executive">Executive</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="targetPosition">Target Position</label>
+                <input type="text" id="targetPosition" class="form-control" placeholder="e.g., Software Engineer" required>
             </div>
 
             <div class="form-group">

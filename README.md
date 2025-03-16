@@ -1,4 +1,4 @@
- # Resume Tailoring Application
+# Resume Tailoring Application
 
 An intelligent web application that automatically tailors LaTeX resumes for specific job applications using Mistral AI. The application analyzes job descriptions, extracts key requirements, and optimizes your resume while maintaining professional LaTeX formatting.
 
@@ -12,6 +12,7 @@ An intelligent web application that automatically tailors LaTeX resumes for spec
 - 🎯 **Skill Matching**: Automatically highlights matching skills and experiences
 - 📄 **PDF Generation**: One-click PDF generation with error handling
 - 📱 **Responsive Design**: Works seamlessly on desktop and mobile devices
+- 🧪 **Comprehensive Testing**: 100% code coverage goal with interactive reports
 
 ## Prerequisites
 
@@ -47,6 +48,8 @@ An intelligent web application that automatically tailors LaTeX resumes for spec
 - [Architecture Overview](docs/architecture.md)
 - [API Documentation](docs/api.md)
 - [Development Guide](docs/development.md)
+- [Project Guide](docs/PROJECT_GUIDE.md)
+- [Context Guide](docs/CONTEXT_GUIDE.md)
 - [Resume Guidelines](RESUME_GUIDELINES.md)
 
 ## How It Works
@@ -89,6 +92,15 @@ An intelligent web application that automatically tailors LaTeX resumes for spec
 - LaTeX System
 - File Management
 
+## Testing and Quality
+
+- Jest test framework with dual environment setup (Node.js and JSDOM)
+- 100% test coverage goal
+- Interactive coverage reports with file search
+- Keyboard navigation through uncovered code blocks
+- Comprehensive validation and error handling
+- Streamlined test development process
+
 ## Security & Performance
 
 - Automatic file cleanup
@@ -104,6 +116,29 @@ An intelligent web application that automatically tailors LaTeX resumes for spec
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
+
+## Development
+
+### Running Tests
+```bash
+# Run all tests
+npm test
+
+# Run specific test file
+npx jest tests/your-test-file.test.js --config=jest.config.js
+
+# Generate coverage reports
+npm test -- --coverage
+```
+
+### Viewing Coverage Reports
+After running tests with coverage, open `coverage/lcov-report/index.html` in your browser to view:
+- Statement coverage
+- Branch coverage
+- Function coverage
+- Line coverage
+
+The reports include search functionality and keyboard navigation (press `n`/`j` for next, `p`/`k`/`b` for previous).
 
 ## Support
 

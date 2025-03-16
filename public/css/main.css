@@ -1455,3 +1455,40 @@ textarea:focus {
     content: "○";
     color: var(--text-light);
 }
+
+/* Validation error styles */
+.field-error {
+    color: #e74c3c;
+    font-size: 0.85rem;
+    margin-left: 10px;
+    display: inline-block;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Add a red border to invalid fields */
+input:invalid, textarea:invalid, .form-group:has(.field-error) input,
+.form-group:has(.field-error) textarea {
+    border-color: #e74c3c;
+    box-shadow: 0 0 0 1px rgba(231, 76, 60, 0.25);
+}
+
+/* Error message styles */
+.error-message {
+    background-color: rgba(231, 76, 60, 0.1);
+    color: #e74c3c;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    border-left: 4px solid #e74c3c;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: translateX(0); }
+}

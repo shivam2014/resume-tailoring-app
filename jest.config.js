@@ -43,6 +43,7 @@ export default {
       testMatch: [
         '**/tests/server.test.js',
         '**/tests/mistralHelper.test.js'
+        // Removed duplicate streamAnalyzeJob.test.js
       ]
     },
     {
@@ -50,7 +51,9 @@ export default {
       testEnvironment: 'jsdom',
       testMatch: [
         '**/tests/diffUtils.test.js',
-        '**/tests/streamingHandler.test.js'
+        '**/tests/streamingHandler.test.js',
+        '**/tests/formValidation.test.js'  // Added new frontend test file
+        // Removed duplicate streamAnalyzeJob.test.js
       ],
       setupFilesAfterEnv: ['./tests/setup.js']
     }
