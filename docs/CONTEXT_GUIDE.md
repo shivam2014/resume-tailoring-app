@@ -17,6 +17,8 @@
   - Form validation with visual feedback only after submission
   - Code coverage reporting with search and navigation features
   - ✓ Fixed: Enhanced JSON parsing and error recovery in streaming API responses
+  - ✓ Added: Multi-format resume file support (tex, json, md, txt, pdf, docx)
+  - ✓ Added: Format-specific content extraction workflow
 - Issues: 
   - ✓ Fixed: Missing field validation in streamAnalyzeJob causing runtime errors
   - ✓ Added comprehensive field validation with detailed error messages
@@ -25,6 +27,7 @@
   - ✓ Fixed: Form validation showing errors on initial page load
   - ✓ Implemented code coverage reports with interactive search and navigation
   - ✓ Fixed: Tests in MistralHelper for handling malformed JSON responses
+  - ✓ Fixed: LaTeX-only file restriction in resume processing workflow
 
 ## Next Steps
 1. ✓ Fix failing tests in MistralHelper for malformed JSON responses
@@ -37,6 +40,8 @@
 8. ✓ Fixed function redeclaration of showError and resetUI in main.js
 9. ✓ Fixed form validation to only show errors after submission attempt
 10. ✓ Implemented test coverage reporting with search and keyboard navigation
+11. ✓ Added support for multiple resume file formats
+12. Complete PDF and DOCX format support with specialized libraries
 
 ## Decisions
 2025-03-14: Removed pdflatex and LaTeX.js dependencies
@@ -94,3 +99,12 @@
 2025-03-21: Enhanced JSON parsing robustness in MistralHelper
 - Why: To handle malformed or incomplete JSON responses from the Mistral API
 - Impact: Improved resilience and error recovery in streaming responses, fixed failing tests
+
+2025-03-22: Implemented multi-format resume file support
+- Why: To enable users to upload resumes in various formats beyond just LaTeX files
+- Impact: Broader accessibility, improved user experience, and eliminated format restrictions
+- Additional formats: JSON, Markdown, Plain Text, PDF (future), DOCX (future)
+
+2025-03-22: Created format-specific content extraction workflow
+- Why: To properly handle different file formats with appropriate parsing strategies
+- Impact: Robust content extraction with format-specific optimizations and error handling

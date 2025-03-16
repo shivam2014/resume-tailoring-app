@@ -537,32 +537,80 @@ export class StreamHandler {
         this.closeStream('tailor');
 
         try {
-            // Validate required fields
+            // Validate required fields and content format
             if (!data || !data.resumeContent || !data.jobRequirements) {
                 throw new Error('Missing required fields: resumeContent and jobRequirements are required');
             }
-            // Validate required fields
-            if (!data.resumeContent || !data.jobRequirements) {
-                throw new Error('Missing required fields: resumeContent and jobRequirements are required');
-            }
-            
+
             // First send the data to initiate the streaming and get a session ID
             const response = await fetch('/stream-tailor', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
-                body: JSON.stringify(data)
+                body: JSON.stringify({
+                    ...data,
+                    metadata: {
+                        ...data.metadata,
+                        fileType: 'tex',
+                        contentType: 'application/x-latex',
+                        fileFormat: 'tex'
+                    }
+                })
             });
 
             let errorData;
             const contentType = response.headers.get("content-type");
+            // Log request details before checking response
+            console.log('Server request details:', {
+                url: '/stream-tailor',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-File-Extension': 'tex'
+                },
+                bodyPreview: {
+                    fileFormat: 'tex',
+                    contentLength: data.resumeContent?.length,
+                    sessionId: data.sessionId
+                }
+            });
+
             if (!response.ok) {
+                const responseDetails = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    contentType: contentType,
+                    headers: Object.fromEntries([...response.headers.entries()])
+                };
+                console.error('Server response error:', responseDetails);
+
                 if (contentType && contentType.includes("application/json")) {
                     errorData = await response.json();
-                    throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+                    console.error('Server error details:', errorData);
+                    
+                    // Enhanced error message with more context
+                    const errorMessage = errorData.error
+                        ? `Server error: ${errorData.error} (Status: ${response.status})`
+                        : `HTTP error! Status: ${response.status}`;
+                    throw new Error(errorMessage);
                 } else {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
+                    // Try to read the raw response text
+                    const rawResponse = await response.text();
+                    console.error('Raw error response:', rawResponse);
+                    
+                    // Log complete error context
+                    console.error('Complete error context:', {
+                        response: responseDetails,
+                        rawResponse,
+                        requestData: {
+                            fileFormat: 'tex',
+                            contentLength: data.resumeContent?.length
+                        }
+                    });
+                    
+                    throw new Error(`HTTP error! Status: ${response.status}, Response: ${rawResponse}`);
                 }
             }
 
@@ -684,6 +732,80 @@ export class StreamHandler {
                 callbacks.onError('Error: ' + error.message);
             }
         }
+    }
+
+    /**
+     * Extract content from different file types
+     * @param {File} file - The uploaded file
+     * @returns {Promise<string>} - The extracted content
+     */
+    extractFileContent(file) {
+        return new Promise((resolve, reject) => {
+            const fileReader = new FileReader();
+            const fileName = file.name.toLowerCase();
+            const fileExtension = '.' + fileName.split('.').pop();
+            
+            // Add support for multiple file formats
+            const allowedExtensions = ['.tex', '.json', '.md', '.txt'];
+            if (!allowedExtensions.includes(fileExtension)) {
+                reject(new Error(`Unsupported file format. Allowed formats: ${allowedExtensions.join(', ')}`));
+                return;
+            }
+            
+            fileReader.onload = async (event) => {
+                try {
+                    const content = event.target.result;
+                    
+                    if (fileExtension === '.json') {
+                        try {
+                            const jsonData = JSON.parse(content);
+                            // Extract text from JSON using our helper function
+                            const extractedText = this.extractTextFromJSON(jsonData);
+                            resolve(extractedText);
+                        } catch (e) {
+                            reject(new Error('Invalid JSON format'));
+                        }
+                    } else if (['.txt', '.tex', '.md'].includes(fileExtension)) {
+                        // These formats can be used directly as text
+                        resolve(content);
+                    } else {
+                        reject(new Error(`Unsupported file format: ${fileExtension}`));
+                    }
+                } catch (error) {
+                    reject(new Error(`Error extracting content: ${error.message}`));
+                }
+            };
+            
+            fileReader.onerror = () => reject(new Error('Error reading file'));
+            fileReader.readAsText(file);
+        });
+    }
+
+    /**
+     * Extract text from JSON structure
+     * @param {Object} jsonData - Parsed JSON data
+     * @returns {string} - Extracted text
+     */
+    extractTextFromJSON(jsonData) {
+        // Handle various JSON structures
+        if (typeof jsonData === 'string') {
+            return jsonData;
+        }
+        
+        if (jsonData.content || jsonData.text) {
+            return jsonData.content || jsonData.text;
+        }
+        
+        if (jsonData.sections) {
+            // If JSON has sections, concatenate their content
+            return jsonData.sections.map(section => {
+                if (typeof section === 'string') return section;
+                return section.content || section.text || '';
+            }).join('\n\n');
+        }
+        
+        // Fall back to stringifying the JSON for processing
+        return JSON.stringify(jsonData, null, 2);
     }
 
     /**
@@ -1104,3 +1226,133 @@ function createMistralMessages(resumeContent, jobRequirements, prompt) {
     { role: "user", content: userPrompt }
   ];
 }
+
+/**
+ * Streams a resume tailoring request to the backend
+ */
+export function streamTailorResume(sessionId, resumeFile, requirements, options, callbacks = {}) {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log("Starting resume tailoring...");
+            
+            // Simple file validation
+            if (!resumeFile || !(resumeFile instanceof File)) {
+                throw new Error('Resume file is required');
+            }
+
+            // Read file content directly
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const content = e.target.result;
+                if (!content || content.trim().length === 0) {
+                    reject(new Error("Resume file is empty"));
+                    return;
+                }
+
+                // Prepare request data without format conversion
+                const requestData = {
+                    resumeContent: content,
+                    jobRequirements: requirements,
+                    sessionId: sessionId,
+                    metadata: {
+                        fileName: resumeFile.name,
+                        fileSize: content.length
+                    }
+                };
+
+                // Send the request
+                const streamHandler = new StreamHandler();
+                streamHandler.streamTailorResume(requestData, callbacks)
+                    .then(() => {
+                        console.log('Resume tailoring completed successfully');
+                        resolve();
+                    })
+                    .catch(error => {
+                        console.error('Resume tailoring failed:', error);
+                        reject(error);
+                    });
+            };
+            
+            reader.onerror = function() {
+                reject(new Error("Error reading the file"));
+            };
+            
+            reader.readAsText(resumeFile);
+        } catch (error) {
+            console.error("Error in streamTailorResume:", error);
+            reject(error);
+        }
+    });
+}
+
+/**
+ * Extracts text content from a JSON structure
+ */
+function extractTextFromJSON(jsonData) {
+    // Check common fields where content might be stored
+    if (jsonData.content && typeof jsonData.content === 'string') {
+        return jsonData.content;
+    } else if (jsonData.text && typeof jsonData.text === 'string') {
+        return jsonData.text;
+    } else if (jsonData.sections && Array.isArray(jsonData.sections)) {
+        // Combine text from all sections
+        return jsonData.sections
+            .map(section => {
+                if (typeof section === 'string') return section;
+                if (section.content) return section.content;
+                if (section.text) return section.text;
+                return '';
+            })
+            .filter(text => text.trim().length > 0)
+            .join('\n\n');
+    }
+    
+    // If no standard fields found, stringify the entire JSON as fallback
+    return JSON.stringify(jsonData, null, 2);
+}
+
+/**
+ * Validate inputs for streamTailorResume
+ * @param {string} sessionId - Session ID
+ * @param {File} resumeFile - Resume file
+ * @param {Object|string} requirements - Job requirements
+ * @returns {boolean} - True if valid
+ * @throws {Error} - Error with message if invalid
+ */
+function validateStreamTailorInputs(sessionId, resumeFile, requirements) {
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.trim() === '') {
+        throw new Error('Session ID is required');
+    }
+    
+    if (!resumeFile || !(resumeFile instanceof File)) {
+        throw new Error('Resume file is required');
+    }
+    
+    const SUPPORTED_FORMATS = ['tex', 'txt', 'md', 'json'];
+    const FUTURE_FORMATS = ['pdf', 'docx'];
+    
+    const fileExtension = resumeFile.name.split('.').pop().toLowerCase();
+    
+    console.log('Validating file format:', {
+        fileName: resumeFile.name,
+        fileExtension,
+        supportedFormats: SUPPORTED_FORMATS,
+        futureFormats: FUTURE_FORMATS
+    });
+    
+    if (!SUPPORTED_FORMATS.includes(fileExtension)) {
+        if (FUTURE_FORMATS.includes(fileExtension)) {
+            throw new Error(`${fileExtension.toUpperCase()} files will be supported in a future update. Currently supported formats: ${SUPPORTED_FORMATS.join(', ')}`);
+        } else {
+            throw new Error(`Unsupported file format: .${fileExtension}. Supported formats: ${SUPPORTED_FORMATS.join(', ')}`);
+        }
+    }
+    
+    if (!requirements) {
+        throw new Error('Job requirements are required');
+    }
+    
+    return true;
+}
+

@@ -62,7 +62,44 @@
     - Manages event streams
     - Implements error recovery
     - Provides both singleton instance and standalone validation functions
+    - Multi-format content extraction (tex, json, md, txt files)
+    - Format-specific parsing and content extraction
   - Server: Handles PDF generation (using pdfmake) and API endpoints
+
+## Multi-Format Resume Processing
+
+The application now supports multiple file formats for resume tailoring:
+
+### Supported File Formats
+- `.tex` - LaTeX documents (legacy format)
+- `.json` - Structured JSON data
+- `.md` - Markdown text
+- `.txt` - Plain text
+- `.pdf` - PDF documents (requires PDF.js integration)
+- `.docx` - Word documents (requires additional libraries)
+
+### Content Extraction Workflow
+1. **File Upload**: User uploads resume file in any supported format
+2. **Format Detection**: System detects file format based on extension
+3. **Content Extraction**:
+   - `.tex` files: Read as text, use AST parsing for structure
+   - `.json` files: Parse JSON structure, extract relevant text fields
+   - `.md` and `.txt` files: Read directly as plain text
+   - `.pdf` and `.docx` files: Use specialized libraries for text extraction
+4. **Content Validation**: Ensure extracted content is not empty
+5. **API Processing**: Send extracted content to Mistral AI for analysis
+6. **Result Generation**: Process API response and generate tailored results
+
+### Format-Specific Considerations
+- **JSON Format**: Should contain text in `content`, `text`, or `sections` fields
+- **Markdown**: Special formatting is preserved for better analysis
+- **PDF/DOCX**: These formats require additional libraries (PDF.js, mammoth.js)
+  and currently display a helpful error message suggesting alternative formats
+
+### Error Handling
+- Validation errors for unsupported file types
+- Format-specific extraction errors with clear messages
+- Empty content detection and appropriate error messaging
 
 ## Process
 - Build: npm run build
@@ -205,6 +242,14 @@
    - Add cleanup logic to prevent resource leaks
    - Implement retry mechanisms with proper backoff strategies
    - Provide clear error messages to distinguish between different failure modes
+
+10. **Multi-format file handling**
+    - Validate file extensions before attempting to process
+    - Use appropriate file reading methods based on format (readAsText vs readAsArrayBuffer)
+    - Implement format-specific content extraction functions
+    - Handle binary formats with specialized libraries
+    - Validate extracted content before sending to API
+    - Provide clear error messages for unsupported or malformed file formats
 
 ### Running Individual Test Files
 To run a specific test file without configuration issues:
