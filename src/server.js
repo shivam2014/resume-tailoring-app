@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
-import marked from 'marked'; // For Markdown processing
+import { marked } from 'marked'; // For Markdown processing
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
