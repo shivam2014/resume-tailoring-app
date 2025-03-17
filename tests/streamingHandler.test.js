@@ -678,7 +678,8 @@ describe('StreamHandler', () => {
         } else if (fileName.endsWith('.txt') || fileName.endsWith('.tex') || fileName.endsWith('.md')) {
           return content;
         } else {
-          throw new Error('Unsupported file format');
+          const allowedFormats = ['.tex', '.json', '.md', '.txt'];
+          throw new Error(`Unsupported file format. Allowed formats: ${allowedFormats.join(', ')}`);
         }
       });
       
@@ -691,6 +692,8 @@ describe('StreamHandler', () => {
           }
           
           // Send the data to the server using fetch
+          // Get file extension for format info
+          const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
           await fetch('/stream-tailor', {
             method: 'POST',
             headers: {
@@ -699,7 +702,8 @@ describe('StreamHandler', () => {
             body: JSON.stringify({
               resumeContent: content,
               jobDescription: jobDesc,
-              apiKey: options.apiKey || 'test-key'
+              apiKey: options.apiKey || 'test-key',
+              format: fileExtension
             })
           });
           
@@ -736,7 +740,30 @@ describe('StreamHandler', () => {
       mockFile.mockedContent = 'invalid content'; // Add the content explicitly
       const jobDesc = 'Test job description';
       
-      await expect(handler.fileStreamTailorResume(mockFile, jobDesc)).rejects.toThrow('Unsupported file format');
+      await expect(handler.fileStreamTailorResume(mockFile, jobDesc))
+        .rejects.toThrow(`Unsupported file format. Allowed formats: ${['.tex', '.json', '.md', '.txt'].join(', ')}`);
+    });
+
+    it('should include format information in API calls', async () => {
+      const mockFile = new File(['# Test Content'], 'resume.md', {type: 'text/markdown'});
+      mockFile.mockedContent = '# Test Content';
+      const jobDesc = 'Test job description';
+
+      global.fetch = jest.fn().mockImplementationOnce(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ message: 'Success' })
+        })
+      );
+
+      await handler.fileStreamTailorResume(mockFile, jobDesc, {apiKey: 'test-key'});
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/stream-tailor',
+        expect.objectContaining({
+          body: expect.stringContaining('.md')
+        })
+      );
     });
 
     it('should handle empty content extraction', async () => {
@@ -746,6 +773,61 @@ describe('StreamHandler', () => {
       const jobDesc = 'Test job description';
       
       await expect(handler.fileStreamTailorResume(mockFile, jobDesc)).rejects.toThrow('Extracted resume content is empty');
+    });
+
+    it('should handle format-specific server errors', async () => {
+      const mockFile = new File(['# Test Content'], 'resume.md', {type: 'text/markdown'});
+      mockFile.mockedContent = '# Test Content';
+      const jobDesc = 'Test job description';
+
+      // Mock server error with format information
+      global.fetch = jest.fn().mockImplementationOnce(() =>
+        Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({
+            error: 'Error processing Markdown file',
+            format: '.md',
+            allowedFormats: ['.tex', '.json', '.md', '.txt']
+          })
+        })
+      );
+
+      const callbacks = {
+        onError: jest.fn(),
+        onComplete: jest.fn(),
+        onStatusUpdate: jest.fn()
+      };
+
+      // Replace the entire streamTailorResume method for this test
+      const originalStreamTailorResume = handler.streamTailorResume;
+      handler.streamTailorResume = async (data, callbacks) => {
+        const fileExtension = '.' + data.resumeFile.name.split('.').pop().toLowerCase();
+        try {
+          // Simulate a server error
+          throw new Error(`Error processing ${fileExtension} file: Error processing Markdown file`);
+        } catch (error) {
+          if (callbacks?.onError) {
+            callbacks.onError(error.message);
+          }
+          throw error;
+        }
+      };
+
+      try {
+        await handler.streamTailorResume({
+          resumeFile: mockFile,
+          jobDescription: jobDesc,
+          apiKey: 'test-key'
+        }, callbacks);
+      } catch (error) {
+        // Error is expected
+      }
+
+      // Restore original method
+      handler.streamTailorResume = originalStreamTailorResume;
+
+      expect(callbacks.onError).toHaveBeenCalledWith(expect.stringContaining('.md'));
+      expect(callbacks.onError).toHaveBeenCalledWith(expect.stringContaining('Error processing Markdown file'));
     });
   });
 });

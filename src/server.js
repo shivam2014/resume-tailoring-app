@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
+import marked from 'marked'; // For Markdown processing
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
@@ -8,6 +9,16 @@ import { exec } from 'child_process';
 import MistralHelper from './mistralHelper.js';
 import { fileURLToPath } from 'url';
 import { parse } from 'latex.js';
+
+/**
+ * Resume Tailoring Application Server
+ *
+ * Supported File Formats:
+ * - .tex  - LaTeX documents
+ * - .json - Structured JSON data
+ * - .md   - Markdown text
+ * - .txt  - Plain text
+ */
 
 // Determine dirname in a way that works in all environments
 const __dirname = process.env.NODE_ENV === 'test'
@@ -76,8 +87,10 @@ const storage = multer.diskStorage({
 const upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
-        if (path.extname(file.originalname) !== '.tex') {
-            const error = new Error('Only .tex files are allowed');
+        const allowedExtensions = ['.tex', '.json', '.md', '.txt'];
+        const fileExt = path.extname(file.originalname).toLowerCase();
+        if (!allowedExtensions.includes(fileExt)) {
+            const error = new Error(`Unsupported file format. Allowed formats: ${allowedExtensions.join(', ')}`);
             return cb(error, false);
         }
         cb(null, true);
@@ -88,10 +101,22 @@ const upload = multer({
 const uploadMiddleware = (req, res, next) => {
     upload.single('resumeFile')(req, res, (err) => {
         if (err) {
-            return res.status(400).json({ error: err.message });
+            if (err.code === 'LIMIT_FILE_TYPE') {
+                return res.status(400).json({
+                    error: 'Unsupported file format',
+                    allowedFormats: ['.tex', '.json', '.md', '.txt']
+                });
+            }
+            return res.status(400).json({
+                error: err.message,
+                allowedFormats: ['.tex', '.json', '.md', '.txt']
+            });
         }
         if (!req.file && req.method !== 'GET') {
-            return res.status(400).json({ error: 'Only .tex files are allowed' });
+            return res.status(400).json({
+                error: 'No file uploaded',
+                allowedFormats: ['.tex', '.json', '.md', '.txt']
+            });
         }
         next();
     });
@@ -396,9 +421,22 @@ app.post('/stream-tailor', uploadMiddleware, (req, res) => {
             tailorPrompt
           } = req.body;
           console.log('API Key received in /stream-tailor:', apiKey);
-          // Read the uploaded file
-        const resumeContent = fs.readFileSync(req.file.path, 'utf-8');
+          // Read and validate the uploaded file
+        let resumeContent = fs.readFileSync(req.file.path, 'utf-8');
         console.log('Resume content loaded from file');
+        
+        // If JSON file, parse and validate
+        if (path.extname(req.file.originalname).toLowerCase() === '.json') {
+            try {
+                const parsed = JSON.parse(resumeContent);
+                resumeContent = JSON.stringify(parsed); // Re-stringify to ensure valid JSON
+            } catch (error) {
+                return res.status(400).json({
+                    error: 'Invalid JSON format',
+                    details: error.message
+                });
+            }
+        }
         
         // Create a session ID
         const sessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
@@ -425,10 +463,11 @@ app.post('/stream-tailor', uploadMiddleware, (req, res) => {
         console.error('Error in /stream-tailor:', error);
         
         // Handle file type validation and multer errors
-        if (error.status === 400 || error.message === 'Only .tex files are allowed' ||
+        if (error.status === 400 || error.message.includes('Unsupported file format') ||
             error instanceof multer.MulterError) {
             return res.status(400).json({
-                error: 'Invalid file type. Only .tex files are allowed'
+                error: error.message || 'Invalid file type',
+                allowedFormats: ['.tex', '.json', '.md', '.txt']
             });
         }
 
@@ -648,23 +687,87 @@ app.post('/get-preview', (req, res) => {
   }
 });
 
-// Generate PDF from modified content using LaTeX.js
+// Generate PDF from modified content (supports multiple formats)
 app.post('/generate-pdf', async (req, res) => {
     try {
-        if (!req.body.content) {
+        if (!req.body.content || !req.body.format) {
             return res.status(400).json({
-                error: 'Missing content',
-                details: 'Please provide the LaTeX content'
+                error: 'Missing required fields',
+                details: 'Please provide content and format',
+                allowedFormats: ['.tex', '.json', '.md', '.txt']
             });
         }
 
-        const LaTeX = (await import('latex.js')).default;
+        const format = req.body.format.toLowerCase();
+        const allowedFormats = ['.tex', '.json', '.md', '.txt'];
+        
+        if (!allowedFormats.includes(format)) {
+            return res.status(400).json({
+                error: 'Invalid file type',
+                allowedFormats: allowedFormats
+            });
+        }
+
+        let content;
         try {
-            console.log('Received LaTeX content:', req.body.content);
+            switch (format) {
+                case '.tex':
+                    content = req.body.content;
+                    break;
+                case '.md':
+                    const { marked } = require('marked');
+                    content = marked.parse(req.body.content);
+                    break;
+                case '.json':
+                    try {
+                        if (typeof req.body.content !== 'string') {
+                            throw new Error('Content must be a JSON string');
+                        }
+                        
+                        // First, try to parse the content
+                        const jsonContent = JSON.parse(req.body.content);
+                        
+                        // Then validate it's a proper object/array
+                        if (typeof jsonContent !== 'object' || jsonContent === null) {
+                            throw new Error('JSON content must be an object or array');
+                        }
+                        
+                        content = JSON.stringify(jsonContent, null, 2);
+                    } catch (parseError) {
+                        console.error('JSON parsing error:', parseError);
+                        return res.status(500).json({
+                            error: 'Failed to create PDF',
+                            details: `JSON parsing error: ${parseError.message}`,
+                            format: '.json'
+                        });
+                    }
+                    break;
+                case '.txt':
+                default:
+                    content = req.body.content;
+                }
+        } catch (error) {
+            console.error('Detailed error during content parsing:', error);
+            return res.status(500).json({
+                error: 'Failed to create PDF',
+                details: `Content parsing error: ${error.message}`,
+                format: format
+            });
+        }
+
+        try {
+            console.log('Starting PDF generation for format:', format);
+            console.log('Content length:', content.length);
             
             const pdfmake = require('pdfmake');
             const fonts = {
-                Roboto: {
+                Courier: {
+                    normal: 'Courier',
+                    bold: 'Courier-Bold',
+                    italics: 'Courier-Oblique',
+                    bolditalics: 'Courier-BoldOblique'
+                },
+                Helvetica: {
                     normal: 'Helvetica',
                     bold: 'Helvetica-Bold',
                     italics: 'Helvetica-Oblique',
@@ -672,42 +775,70 @@ app.post('/generate-pdf', async (req, res) => {
                 }
             };
             
+            console.log('Initializing PDF printer');
             const printer = new pdfmake(fonts);
+            
+            console.log('Creating document definition');
             const docDefinition = {
                 content: [
-                    { text: req.body.content, fontSize: 12 }
-                ]
+                    {
+                        text: content,
+                        fontSize: 12,
+                        margin: [0, 0, 0, 12],
+                        lineHeight: 1.5
+                    }
+                ],
+                defaultStyle: {
+                    font: 'Courier',
+                    fontSize: 12
+                },
+                pageMargins: [40, 60, 40, 60],
+                pageSize: 'A4',
+                pageOrientation: 'portrait'
             };
             
-            try {
-                const pdfDoc = printer.createPdfKitDocument(docDefinition);
-                res.type('application/pdf');
-                pdfDoc.pipe(res);
-                pdfDoc.end();
-            } catch (error) {
-                console.error('PDF creation error:', error);
+            console.log('Creating PDF document');
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
+
+            console.log('Setting response headers');
+            res.type('application/pdf');
+
+            console.log('Streaming PDF to response');
+            pdfDoc.pipe(res);
+            pdfDoc.end();
+
+            pdfDoc.on('error', (error) => {
+                console.error('PDF stream error:', error);
+                console.error('Error stack:', error.stack);
+                if (!res.headersSent) {
+                    res.status(500).json({
+                        error: 'Failed to create PDF',
+                        details: error.message,
+                        format: format
+                    });
+                }
+            });
+
+            console.log('PDF generation completed successfully');
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            if (!res.headersSent) {
                 return res.status(500).json({
                     error: 'Failed to create PDF',
                     details: error.message
                 });
             }
-        } catch (error) {
-            console.error('PDF generation error:', error);
-            console.error('Error stack:', error.stack);
-            throw new Error(`Failed to generate PDF: ${error.message}`);
         }
     } catch (error) {
-      // Log error but don't send response yet
-      console.error('Error generating PDF:', error);
-      // Make sure we haven't already sent a response
-      if (!res.headersSent) {
-        return res.status(500).json({
-          error: 'Error generating PDF',
-          details: error.message
-        });
-      }
+        console.error('Error in PDF generation:', error);
+        if (!res.headersSent) {
+            return res.status(500).json({
+                error: 'Failed to create PDF',
+                details: error.message
+            });
+        }
     }
-  });
+});
 
 // Add error handler for missing sessions
 app.use((err, req, res, next) => {

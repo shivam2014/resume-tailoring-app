@@ -2,6 +2,12 @@
 
 /**
  * Extract content from different file types
+ * Supported formats:
+ * - .tex  - LaTeX documents
+ * - .json - Structured JSON data
+ * - .md   - Markdown text
+ * - .txt  - Plain text
+ *
  * @param {File} file - The uploaded file
  * @returns {Promise<string>} - The extracted content
  */
@@ -46,7 +52,8 @@ export function extractFileContent(file) {
             reject(new Error('DOCX extraction requires additional libraries. Please use another format.'));
             break;
           default:
-            reject(new Error(`Unsupported file format: ${fileExtension}`));
+            const allowedFormats = ['.tex', '.json', '.md', '.txt'];
+            reject(new Error(`Unsupported file format. Allowed formats: ${allowedFormats.join(', ')}`));
         }
       } catch (error) {
         reject(new Error(`Error extracting content from ${file.name}: ${error.message}`));
@@ -107,15 +114,14 @@ export function streamTailorResume(resumeFile, jobDescription, options = {}) {
       return;
     }
     
-    // Multi-format support - REPLACE the .tex check at line 563
     const allowedExtensions = ['.tex', '.json', '.md', '.txt'];
     const fileExtension = '.' + resumeFile.name.split('.').pop().toLowerCase();
     if (!allowedExtensions.includes(fileExtension)) {
-      reject(new Error(`Unsupported file format. Allowed formats: ${allowedExtensions.join(', ')}`));
+      reject(new Error("Unsupported file format. Allowed formats: .tex, .json, .md, .txt"));
       return;
     }
     
-    // Use our new content extraction function instead of the original FileReader
+    // Extract content from the file based on its format
     extractFileContent(resumeFile)
       .then(extractedContent => {
         // Validate extracted content
@@ -124,10 +130,13 @@ export function streamTailorResume(resumeFile, jobDescription, options = {}) {
           return;
         }
         
-        // Continue with API communication using the extracted content
+        // Prepare form data with content and format information
+        // Prepare request body with format information
         const formData = new FormData();
         formData.append('resumeContent', extractedContent);
         formData.append('jobDescription', jobDescription);
+        formData.append('format', fileExtension);
+        formData.append('fileFormat', fileExtension); // Include format explicitly
         
         // Add optional parameters
         if (options.apiKey) {
@@ -137,26 +146,40 @@ export function streamTailorResume(resumeFile, jobDescription, options = {}) {
         if (options.tailorPrompt) {
           formData.append('tailorPrompt', options.tailorPrompt);
         }
+
+        console.log(`Sending ${fileExtension} format resume for tailoring`);
         
-        // Call the API endpoint
-        fetch('/tailor-resume', {
-          method: 'POST',
-          body: formData
-        })
-        .then(response => {
-          if (!response.ok) {
-            return response.json().then(errorData => {
-              throw new Error(errorData.error || 'Error tailoring resume');
+        // Use an async IIFE to handle the fetch operation
+        (async () => {
+          try {
+            const response = await fetch('/tailor-resume', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                resumeContent: extractedContent,
+                jobDescription: jobDescription,
+                format: fileExtension,
+                apiKey: options.apiKey
+              })
             });
+
+            if (!response.ok) {
+              const errorData = await response.json();
+              const formatMsg = ` for ${fileExtension} format`;
+              if (errorData.error) {
+                throw new Error(`${errorData.error}${formatMsg}`);
+              }
+              throw new Error(`Error processing resume${formatMsg}`);
+            }
+
+            const data = await response.json();
+            resolve(data);
+          } catch (error) {
+            reject(error);
           }
-          return response.json();
-        })
-        .then(data => {
-          resolve(data);
-        })
-        .catch(error => {
-          reject(error);
-        });
+        })();
       })
       .catch(error => {
         reject(error);
@@ -183,13 +206,66 @@ export class StreamHandler {
     this.fileStreamTailorResume = streamTailorResume;
   }
   
-  // Use the exported functions inside methods
+  // Stream the resume tailoring process
   async streamTailorResume(data, callbacks) {
-    // ...existing code...
-    // This method would use the exported streamTailorResume function
+    try {
+      if (!data.resumeFile || !data.jobDescription || !data.apiKey) {
+        throw new Error('Missing required parameters: resumeFile, jobDescription, and apiKey are required');
+      }
+
+      // Extract file content and format
+      const fileExtension = '.' + data.resumeFile.name.split('.').pop().toLowerCase();
+      const extractedContent = await this.extractFileContent(data.resumeFile);
+
+      // Create session with format information
+      const formData = new FormData();
+      formData.append('resumeContent', extractedContent);
+      formData.append('jobDescription', data.jobDescription);
+      formData.append('format', fileExtension);
+      formData.append('apiKey', data.apiKey);
+
+      if (data.tailorPrompt) {
+        formData.append('tailorPrompt', data.tailorPrompt);
+      }
+
+      // Handle callbacks
+      if (callbacks?.onStart) {
+        callbacks.onStart({ format: fileExtension });
+      }
+
+      const response = await this.fileStreamTailorResume(
+        data.resumeFile,
+        data.jobDescription,
+        {
+          apiKey: data.apiKey,
+          tailorPrompt: data.tailorPrompt
+        }
+      );
+
+      if (callbacks?.onComplete) {
+        callbacks.onComplete(response);
+      }
+
+      return response;
+    } catch (error) {
+      // Add format-specific context to error messages
+      const fileExtension = data?.resumeFile?.name ? '.' + data.resumeFile.name.split('.').pop().toLowerCase() : '';
+      let enhancedError;
+      
+      if (error.message.includes('Unsupported file format')) {
+        enhancedError = error;
+      } else if (fileExtension) {
+        enhancedError = new Error(`Error processing ${fileExtension} file: ${error.message}`);
+      } else {
+        enhancedError = error;
+      }
+      
+      if (callbacks?.onError) {
+        callbacks.onError(enhancedError);
+      }
+      throw enhancedError;
+    }
   }
-  
-  // ...existing code...
 }
 
 // Create singleton instance

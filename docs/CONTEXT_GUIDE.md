@@ -19,6 +19,7 @@
   - ✓ Fixed: Enhanced JSON parsing and error recovery in streaming API responses
   - ✓ Added: Multi-format resume file support (tex, json, md, txt, pdf, docx)
   - ✓ Added: Format-specific content extraction workflow
+  - ✓ Fixed: Format-specific error messages in streamingHandler
 - Issues: 
   - ✓ Fixed: Missing field validation in streamAnalyzeJob causing runtime errors
   - ✓ Added comprehensive field validation with detailed error messages
@@ -28,6 +29,7 @@
   - ✓ Implemented code coverage reports with interactive search and navigation
   - ✓ Fixed: Tests in MistralHelper for handling malformed JSON responses
   - ✓ Fixed: LaTeX-only file restriction in resume processing workflow
+  - ✓ Fixed: Inconsistent error messages for unsupported file formats
 
 ## Next Steps
 1. ✓ Fix failing tests in MistralHelper for malformed JSON responses
@@ -108,3 +110,7 @@
 2025-03-22: Created format-specific content extraction workflow
 - Why: To properly handle different file formats with appropriate parsing strategies
 - Impact: Robust content extraction with format-specific optimizations and error handling
+
+2025-03-23: Enhanced error handling for file formats
+- Why: To provide consistent and format-specific error messages across the application
+- Impact: Improved error reporting with standardized messages for unsupported formats and format-specific processing errors

@@ -299,14 +299,36 @@ describe('Server Integration Tests', () => {
       }
     }, 15000); // Increase timeout to 15 seconds
 
-    it('should validate resume file type', async () => {
+    it('should accept different resume formats', async () => {
+      const testFormats = {
+        tex: '\\section{Test} Content',
+        json: JSON.stringify({ content: 'Test Content' }),
+        md: '# Test\nContent',
+        txt: 'Plain text content'
+      };
+
+      for (const [format, content] of Object.entries(testFormats)) {
+        const response = await request(app)
+          .post('/stream-tailor')
+          .attach('resumeFile', Buffer.from(content), `test.${format}`)
+          .field('requirements', JSON.stringify({ skills: ['test'] }))
+          .field('apiKey', process.env.TEST_API_KEY);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('sessionId');
+      }
+    });
+
+    it('should reject unsupported file types', async () => {
       const response = await request(app)
         .post('/stream-tailor')
-        .attach('resumeFile', Buffer.from('invalid'), 'test.txt')
-        .field('requirements', JSON.stringify({}));
-      
+        .attach('resumeFile', Buffer.from('test'), 'test.xyz')
+        .field('requirements', JSON.stringify({ skills: ['test'] }))
+        .field('apiKey', process.env.TEST_API_KEY);
+
       expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toMatch(/Unsupported file format/);
+      expect(response.body.allowedFormats).toEqual(['.tex', '.json', '.md', '.txt']);
     });
 
     it('should handle missing requirements', async () => {
@@ -416,34 +438,125 @@ describe('Server Integration Tests', () => {
   });
 
   describe('PDF Generation', () => {
-    const validLatex = '\\documentclass{article}\\begin{document}Test\\end{document}';
+    const testFiles = {
+      tex: '\\documentclass{article}\\begin{document}Test\\end{document}',
+      json: JSON.stringify({ content: 'Test JSON content' }),
+      md: '# Test Markdown\nContent',
+      txt: 'Plain text content'
+    };
 
-    it('should generate PDF from valid LaTeX', async () => {
+    it('should generate PDF from different formats', async () => {
       jest.setTimeout(30000); // Increase timeout to 30 seconds for PDF generation
-      const response = await request(app)
-        .post('/generate-pdf')
-        .send({ content: validLatex });
       
-      expect(response.status).toBe(200);
-      expect(response.type).toBe('application/pdf');
+      for (const [format, content] of Object.entries(testFiles)) {
+        const response = await request(app)
+          .post('/generate-pdf')
+          .send({
+            content,
+            format: `.${format}`
+          });
+        
+        expect(response.status).toBe(200);
+        expect(response.type).toBe('application/pdf');
+      }
     });
 
-    it('should handle invalid LaTeX content', async () => {
+    it('should handle format-specific errors', async () => {
       const response = await request(app)
         .post('/generate-pdf')
-        .send({ content: 'invalid content' });
+        .send({
+          content: 'Invalid content',
+          format: '.json'
+        });
       
-      expect(response.status).toBe(200);
-      expect(response.type).toBe('application/pdf');
+      expect(response.status).toBe(500);
+      expect(response.body.error).toBe('Failed to create PDF');
+      expect(response.body.format).toBe('.json');
+    });
+
+    it('should require format parameter', async () => {
+      const response = await request(app)
+        .post('/generate-pdf')
+        .send({ content: testFiles.txt });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Missing required fields');
+      expect(response.body.details).toBe('Please provide content and format');
     });
 
     it('should handle missing content', async () => {
       const response = await request(app)
         .post('/generate-pdf')
-        .send({});
+        .send({ format: '.txt' });
       
       expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toBe('Missing required fields');
+      expect(response.body.details).toBe('Please provide content and format');
+    });
+
+    it('should reject unsupported formats', async () => {
+      const response = await request(app)
+        .post('/generate-pdf')
+        .send({
+          content: 'test content',
+          format: '.xyz'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid file type');
+      expect(response.body).toHaveProperty('allowedFormats');
+      expect(response.body.allowedFormats).toContain('.tex');
+      expect(response.body.allowedFormats).toContain('.json');
+      expect(response.body.allowedFormats).toContain('.md');
+      expect(response.body.allowedFormats).toContain('.txt');
+    });
+  });
+
+  describe('Content Extraction and Format Handling', () => {
+    beforeEach(() => {
+      jest.setTimeout(10000); // Increase timeout for file processing
+    });
+
+    it('should extract content from JSON resume', async () => {
+      const jsonContent = JSON.stringify({
+        sections: [
+          { content: 'Section 1' },
+          { text: 'Section 2' }
+        ]
+      });
+
+      const response = await request(app)
+        .post('/stream-tailor')
+        .attach('resumeFile', Buffer.from(jsonContent), 'resume.json')
+        .field('requirements', JSON.stringify({ skills: ['test'] }))
+        .field('apiKey', process.env.TEST_API_KEY);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('sessionId');
+    });
+
+    it('should extract content from Markdown resume', async () => {
+      const mdContent = '# Resume\n## Skills\n- Skill 1\n- Skill 2';
+
+      const response = await request(app)
+        .post('/stream-tailor')
+        .attach('resumeFile', Buffer.from(mdContent), 'resume.md')
+        .field('requirements', JSON.stringify({ skills: ['test'] }))
+        .field('apiKey', process.env.TEST_API_KEY);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('sessionId');
+    });
+
+    it('should handle malformed JSON content', async () => {
+      const response = await request(app)
+        .post('/stream-tailor')
+        .attach('resumeFile', Buffer.from('{invalid json}'), 'resume.json')
+        .field('requirements', JSON.stringify({ skills: ['test'] }))
+        .field('apiKey', process.env.TEST_API_KEY);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/Invalid JSON format/);
     });
   });
 
