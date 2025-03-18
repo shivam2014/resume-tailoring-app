@@ -50,6 +50,15 @@
 12. Complete PDF and DOCX format support with specialized libraries
 
 ## Decisions
+2025-03-18: Modularized LaTeX processing
+- Why: To improve code maintainability and reduce token size in large files
+- Impact:
+  - Created new LatexProcessor module
+  - Maintained backward compatibility with facade pattern
+  - Improved testability of LaTeX processing logic
+  - Reduced complexity in streamingHandler.js
+  - Established new modular architecture pattern for future refactoring
+
 2025-03-14: Removed pdflatex and LaTeX.js dependencies
 - Why: To migrate to pdfmake for better maintainability and cross-platform compatibility
 - Impact: Simplified PDF generation process, removed external dependencies

@@ -55,22 +55,27 @@
   - Ensure form validation styling is consistent across the application
 
 ## Architecture
-- Components:
-  - LaTeX Worker: Handles AST parsing in background
-    - Processes LaTeX commands and environments
-    - Converts AST to plain text
-  - Diff Utils: Manages text comparison and formatting
-    - Section extraction
-    - LaTeX text extraction
-    - Diff visualization
-  - Streaming Handler: Manages real-time data processing
-    - Handles JSON parsing and validation
-    - Manages event streams
-    - Implements error recovery
-    - Provides both singleton instance and standalone validation functions
-    - Multi-format content extraction (tex, json, md, txt files)
-    - Format-specific parsing and content extraction
-  - Server: Handles PDF generation (using pdfmake) and API endpoints
+
+### Streaming Module
+- **Core**: Connection management, event streaming
+  - ConnectionManager.js
+- **Processors**: Content transformation
+  - LatexProcessor.js (handles LaTeX validation and processing)
+  - JsonProcessor.js (handles JSON parsing and validation)
+- **Adapters**: AI service integrations
+  - MistralAdapter.js (handles Mistral API communication)
+
+### Helper Module
+- **Core**: API client management
+  - ApiClient.js
+- **Utilities**: Common utilities
+  - ErrorHandler.js
+  - Logger.js
+
+### Legacy Components
+- LaTeX Worker: Handles AST parsing in background
+- Diff Utils: Manages text comparison and formatting
+- Server: Handles PDF generation (using pdfmake) and API endpoints
 
 ## Multi-Format Resume Processing
 

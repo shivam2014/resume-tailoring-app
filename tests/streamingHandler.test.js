@@ -74,8 +74,14 @@ describe('StreamHandler', () => {
       
       await handler.streamAnalyzeJob(formData, callbacks);
       
-      expect(fetch).toHaveBeenCalled();
-      expect(handler.streamConnections.analyze).toBeDefined();
+      expect(fetch).toHaveBeenCalledWith('/stream-analyze', expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: expect.any(String)
+      }));
+      expect(handler.connectionManager.getConnection('analyze')).toBeDefined();
     });
 
     it('should handle connection cleanup', () => {
@@ -249,7 +255,14 @@ describe('StreamHandler', () => {
       // Verify the request was made correctly
       expect(fetch).toHaveBeenCalledWith('/stream-analyze', expect.objectContaining({
         method: 'POST',
-        body: expect.any(FormData)
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          jobDescription: 'test job description',
+          apiKey: 'test-key',
+          requirements: expect.any(String)
+        })
       }));
       
       // Verify connection was established
@@ -410,8 +423,8 @@ describe('StreamHandler', () => {
   describe('cleanup handling', () => {
     it('should clean up all connections on close', () => {
       // Setup connections
-      handler.streamConnections.analyze = mockEventSources.analyze;
-      handler.streamConnections.tailor = mockEventSources.tailor;
+      handler.connectionManager.setConnection('analyze', mockEventSources.analyze);
+      handler.connectionManager.setConnection('tailor', mockEventSources.tailor);
       
       handler.closeAllStreams();
       
@@ -421,8 +434,8 @@ describe('StreamHandler', () => {
 
     it('should handle non-existent connections', () => {
       // No connections
-      handler.streamConnections.analyze = null;
-      handler.streamConnections.tailor = null;
+      handler.connectionManager.setConnection('analyze', null);
+      handler.connectionManager.setConnection('tailor', null);
       
       // Should not throw an error
       expect(() => handler.closeAllStreams()).not.toThrow();

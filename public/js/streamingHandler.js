@@ -3,124 +3,24 @@
  * Handles streaming API responses from Mistral AI for the Resume Tailoring Application
  */
 
+import { LatexProcessor } from '../../src/streaming/processors/LatexProcessor';
+
+import { ConnectionManager } from '../../src/streaming/core/ConnectionManager';
+
 export class StreamHandler {
     constructor() {
-        this.streamConnections = {};
-        this.retryAttempts = 0;
-        this.maxRetries = 3;
-        this.retryDelay = 5000;
-        this.accumulatedContent = ''; // Add shared accumulated content property
+        this.connectionManager = new ConnectionManager();
+        this.accumulatedContent = '';
+        // Connection management is handled by ConnectionManager
     }
 
-    createChunkProcessor(callback) {
-        return (chunk) => this.processChunk(chunk, callback);
-    }
-
-    setupEventListeners(eventSource, callbacks) {
-        // Remove any existing listeners first
-        this.cleanup(eventSource);
-
-        // Create and store chunk event listener
-        eventSource._chunkListener = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (callbacks.onChunk && data.content) {
-                    callbacks.onChunk(data.content);
-                }
-            } catch (error) {
-                console.error('Error processing chunk:', error);
-                if (callbacks.onError) {
-                    callbacks.onError('Failed to process server response: ' + error.message);
-                }
-            }
-        };
-        eventSource.addEventListener('chunk', eventSource._chunkListener);
-
-        // Create and store complete event listener
-        eventSource._completeListener = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (callbacks.onComplete) {
-                    callbacks.onComplete(data.jobRequirements || data.modifiedContent);
-                }
-            } catch (error) {
-                console.error('Error processing complete:', error);
-                if (callbacks.onError) {
-                    callbacks.onError('Error processing results: ' + error.message);
-                }
-            }
-        };
-        eventSource.addEventListener('complete', eventSource._completeListener);
-
-        // Create and store status event listener
-        eventSource._statusListener = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (callbacks.onStatusUpdate) {
-                    callbacks.onStatusUpdate(data.status, data.message);
-                }
-            } catch (error) {
-                console.error('Error parsing status:', error);
-            }
-        };
-        eventSource.addEventListener('status', eventSource._statusListener);
-
-        // Create and store error event listener
-        eventSource._errorListener = (event) => {
-            if (callbacks.onError) {
-                let errorMessage = 'Stream connection error';
-                if (event.data) {
-                    try {
-                        const data = JSON.parse(event.data);
-                        errorMessage = data.error || errorMessage;
-                    } catch (e) {
-                        errorMessage = 'Invalid response format';
-                    }
-                }
-                callbacks.onError(errorMessage);
-            }
-        };
-        eventSource.addEventListener('error', eventSource._errorListener);
-
-        // Create and store message event listener
-        eventSource._messageListener = (event) => {
-            if (event.data === '[DONE]') {
-                if (callbacks.onComplete) {
-                    callbacks.onComplete(this.accumulatedContent || '');
-                }
-                this.closeStream('analyze');
-            }
-        };
-        eventSource.addEventListener('message', eventSource._messageListener);
-
-        return eventSource;
-    }
-
-    connect(endpoint) {
-        const eventSource = new EventSource(endpoint);
-        return eventSource;
-    }
-    
     /**
-     * Creates an EventSource connection to the specified endpoint
-     * @param {string} endpoint - URL to connect to
-     * @returns {EventSource} The created EventSource object
+     * Validates and cleans LaTeX content
+     * @param {string} content - LaTeX content to validate
+     * @returns {string} - Cleaned LaTeX content
      */
-    createEventSource(endpoint) {
-        return new EventSource(endpoint);
-    }
-
-    cleanup(eventSource) {
-        if (eventSource) {
-            // Close the connection
-            eventSource.close();
-            
-            // Remove all standard event listeners
-            const events = ['chunk', 'complete', 'status', 'message', 'error'];
-            events.forEach(event => {
-                eventSource.removeEventListener(event, eventSource[`_${event}Listener`]);
-            });
-        }
+    validateLatexContent(content) {
+        return LatexProcessor.cleanContent(content);
     }
 
     processChunk(chunk, callback) {
@@ -128,6 +28,74 @@ export class StreamHandler {
             // Validate chunk is not empty
             if (!chunk || chunk.trim() === '') {
                 throw new Error('Empty chunk received');
+            }
+
+            // Check if this is LaTeX content
+            if (chunk.includes('\\') && (chunk.includes('\\documentclass') || chunk.includes('\\begin'))) {
+                // Process as LaTeX
+                const cleanedLatex = this.validateLatexContent(chunk);
+                callback({
+                    content: cleanedLatex,
+                    type: 'latex'
+                });
+                return;
+            }
+
+            // Process as JSON if not LaTeX
+            const data = JSON.parse(chunk);
+            if (typeof data !== 'object' || data === null) {
+                throw new Error('Invalid JSON structure');
+            }
+            
+            if (!data.content && !data.status && !data.error) {
+                throw new Error('Missing required fields in JSON');
+            }
+            
+            callback(data);
+        } catch (e) {
+            console.error('Error processing chunk:', e);
+            callback({
+                error: e.message,
+                content: '',
+                status: 'error'
+            });
+        }
+    }
+
+    createChunkProcessor(callback) {
+        return (chunk) => this.processChunk(chunk, callback);
+    }
+
+    setupEventListeners(eventSource, callbacks) {
+        return this.connectionManager.setupEventListeners(eventSource, callbacks);
+    }
+
+    connect(endpoint) {
+        return this.connectionManager.connect(endpoint);
+    }
+
+    cleanup(eventSource) {
+        this.connectionManager.cleanup(eventSource);
+    }
+
+    processChunk(chunk, callback) {
+        try {
+            // Validate chunk is not empty
+            if (!chunk || chunk.trim() === '') {
+                throw new Error('Empty chunk received');
+            }
+
+            // Check if this is LaTeX content
+            if (chunk.includes('\\') && (chunk.includes('\\documentclass') || chunk.includes('\\begin'))) {
+                // Process as LaTeX
+                const cleanedLatex = this.validateLatexContent(chunk);
+                if (cleanedLatex) {
+                    callback({
+                        content: cleanedLatex,
+                        type: 'latex'
+                    });
+                    return;
+                }
             }
             
             // Parse JSON with validation
@@ -193,55 +161,40 @@ export class StreamHandler {
     }
 
     validateAnalyzeFields(formData, errorCallback) {
-        this.logEvent('Validating form fields...');
-        
-        // Check if formData is null or undefined
-        if (!formData) {
-            if (errorCallback) {
-                errorCallback('Invalid form data object');
-                return false;
-            } else {
-                const error = new Error('Form data is required');
-                error.code = 'MISSING_FORM_DATA';
-                throw error;
+        try {
+            if (!formData) {
+                throw new Error('Form data is required');
             }
-        }
-        
-        // Improved debug logging - safely handle formData that might not have entries method
-        console.log('Validating form fields:', 
-            Array.from(formData.entries ? formData.entries() : [])
-                .map(([key, val]) => `${key}: ${typeof val === 'string' ? 
-                    (val.length > 50 ? val.substring(0, 20) + '...' : val) : 
-                    '[' + (typeof val) + ']'}`));
-        
-        // Check form data is valid
-        if (typeof formData.has !== 'function') {
-            if (errorCallback) {
-                errorCallback('Invalid form data object');
-                return false;
-            } else {
-                const error = new Error('Invalid form data object');
-                error.code = 'INVALID_FORM_DATA';
-                throw error;
-            }
-        }
 
-        // Check required fields
-        const requiredFields = ['jobDescription', 'apiKey'];
-        for (const field of requiredFields) {
-            if (!formData.has(field) || !formData.get(field)) {
-                if (errorCallback) {
-                    errorCallback(`Missing required field: ${field}`);
-                    return false;
-                } else {
-                    const error = new Error(`Missing required field: ${field}`);
-                    error.code = 'MISSING_FIELD';
-                    throw error;
+            if (typeof formData.has !== 'function') {
+                throw new Error('Invalid form data object');
+            }
+
+            const requiredFields = ['jobDescription', 'apiKey'];
+            for (const field of requiredFields) {
+                if (!formData.has(field) || !formData.get(field)) {
+                    throw new Error(`Missing required field: ${field}`);
                 }
             }
+
+            // Validate requirements if present
+            const requirements = formData.get('requirements');
+            if (requirements) {
+                try {
+                    JSON.parse(requirements);
+                } catch (e) {
+                    throw new Error('Invalid JSON format in requirements');
+                }
+            }
+
+            return true;
+        } catch (error) {
+            if (errorCallback) {
+                errorCallback(error.message);
+                return false;
+            }
+            throw error;
         }
-        
-        return true;
     }
 
     /**
@@ -254,33 +207,70 @@ export class StreamHandler {
      * @param {Function} callbacks.onError - Called when error occurs
      */
     async streamAnalyzeJob(formData, callbacks = {}) {
-        // Reset accumulated content when starting a new stream
-        this.accumulatedContent = '';
-        
-        // Console log to aid debugging 
-        console.log('Starting job analysis...');
-        
-        // Check for required callbacks
-        if (!callbacks.onError) {
-            console.error('No error callback provided');
+        try {
+            // Reset accumulated content
+            this.accumulatedContent = '';
+            
+            // Ensure error callback exists
+            if (!callbacks.onError) {
+                callbacks.onError = console.error;
+            }
+            
+            // Validate fields
+            if (!this.validateAnalyzeFields(formData, callbacks.onError)) {
+                return null;
+            }
+            
+            // Close any existing connection
+            this.closeStream('analyze');
+
+            // Make the API request
+            const response = await fetch('/stream-analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    jobDescription: formData.get('jobDescription'),
+                    apiKey: formData.get('apiKey'),
+                    requirements: {inverse: false} // Use simple format for analysis endpoint
+                })
+            });
+
+            // Rest of the existing code...
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data || !data.sessionId) {
+                throw new Error('No valid session ID returned from server');
+            }
+
+            // Create event source and set up connection
+            const eventSource = this.createEventSource(`/stream-analyze-events?sessionId=${data.sessionId}`);
+            this.streamConnections.analyze = eventSource;
+            
+            // Set up event listeners
+            this.setupEventListeners(eventSource, callbacks);
+            
+            // Dispatch open event after slight delay to ensure listeners are attached
+            setTimeout(() => {
+                eventSource.dispatchEvent(new MessageEvent('open'));
+            }, 0);
+            
+            return eventSource;
+        } catch (error) {
+            if (callbacks.onError) {
+                callbacks.onError(error.message);
+            }
             return null;
         }
-        
-        // Validate fields
-        if (!this.validateAnalyzeFields(formData, callbacks.onError)) {
-            console.error('Error in streamAnalyzeJob: Error: Missing required fields');
-            return null;
-        }
-        
-        // Close any existing connection
-        this.closeStream('analyze');
 
         try {
             console.log('Starting job analysis...');
             
-            if (!this.streamConnections) {
-                this.streamConnections = {};
-            }
+            this.connectionManager.ensureStreamConnections();
             
             // Validate required fields before sending the request
             if (!formData.has('jobDescription') || !formData.get('jobDescription')) {
@@ -291,9 +281,19 @@ export class StreamHandler {
                 throw new Error('Missing required field: apiKey');
             }
             
+            // Convert FormData to JSON object with requirements
+            const requestBody = {
+                jobDescription: formData.get('jobDescription'),
+                apiKey: formData.get('apiKey'),
+                requirements: formData.get('requirements') ? JSON.parse(formData.get('requirements')) : {inverse: false}
+            };
+
             const response = await fetch('/stream-analyze', {
                 method: 'POST',
-                body: formData
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
             });
 
             let errorData;
@@ -322,8 +322,8 @@ export class StreamHandler {
             }
             
             // Now connect to the streaming endpoint with the session ID
-            const eventSource = new EventSource(`/stream-analyze-events?sessionId=${data.sessionId}`);
-            this.streamConnections.analyze = eventSource;
+            const eventSource = this.connectionManager.connect(`/stream-analyze-events?sessionId=${data.sessionId}`);
+            this.connectionManager.setStream('analyze', eventSource);
             
             // Process events from the server with Mistral-specific handling
             eventSource.addEventListener('chunk', (event) => {
@@ -530,6 +530,7 @@ export class StreamHandler {
      * @param {Function} callbacks.onError - Called when error occurs
      */
     async streamTailorResume(data, callbacks) {
+        // Remove debug logging
         // Reset accumulated content
         this.accumulatedContent = '';
         
@@ -537,15 +538,41 @@ export class StreamHandler {
         this.closeStream('tailor');
 
         try {
-            // Validate required fields and content format
-            if (!data || !data.resumeContent || !data.jobRequirements) {
-                throw new Error('Missing required fields: resumeContent and jobRequirements are required');
+            // Validate inputs
+            if (!callbacks?.onComplete || !callbacks?.onError) {
+                throw new Error('Missing required callbacks: onComplete and onError are required');
             }
+
+            if (!data) {
+                throw new Error('No data provided for resume tailoring');
+            }
+
+            // Validate required fields
+            const missingFields = [];
+            if (!data.resumeContent) {
+                missingFields.push('resumeContent');
+            }
+            if (!data.jobRequirements) {
+                missingFields.push('jobRequirements');
+            }
+            if (missingFields.length > 0) {
+                throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+            }
+
+            // Validate resume content format
+            const cleanedResume = this.validateLatexContent(data.resumeContent);
+            if (!cleanedResume) {
+                throw new Error('Invalid LaTeX resume content');
+            }
+
+            // Remove debug logging
 
             // First send the data to initiate the streaming and get a session ID
             const formData = new FormData();
             const file = new File([data.resumeContent], "resume.tex", { type: "application/x-latex" });
             formData.append('resume', file);
+
+            // Remove debug logging
             // Format requirements as expected by the server
             const formattedRequirements = {
                 messages: [{
@@ -567,19 +594,8 @@ export class StreamHandler {
             let errorData;
             const contentType = response.headers.get("content-type");
             // Log request details before checking response
-            console.log('Server request details:', {
-                url: '/stream-tailor',
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-File-Extension': 'tex'
-                },
-                bodyPreview: {
-                    fileFormat: 'tex',
-                    contentLength: data.resumeContent?.length,
-                    sessionId: data.sessionId
-                }
-            });
+            // Simplify server request logging
+            console.log('Server request:', '/stream-tailor', 'POST');
 
             if (!response.ok) {
                 const responseDetails = {
@@ -605,14 +621,8 @@ export class StreamHandler {
                     console.error('Raw error response:', rawResponse);
                     
                     // Log complete error context
-                    console.error('Complete error context:', {
-                        response: responseDetails,
-                        rawResponse,
-                        requestData: {
-                            fileFormat: 'tex',
-                            contentLength: data.resumeContent?.length
-                        }
-                    });
+                    // Simplify error logging
+                    console.error('HTTP Error:', responseDetails.status, rawResponse);
                     
                     throw new Error(`HTTP error! Status: ${response.status}, Response: ${rawResponse}`);
                 }
@@ -630,77 +640,200 @@ export class StreamHandler {
             const sessionId = sessionData.sessionId;
             
             // Now connect to the streaming endpoint with the session ID
-            const eventSource = new EventSource(`/stream-tailor-events?sessionId=${sessionId}`);
-            this.streamConnections.tailor = eventSource;
+            const eventSource = this.connectionManager.connect(`/stream-tailor-events?sessionId=${sessionId}`);
+            this.connectionManager.setStream('tailor', eventSource);
             
             // Process events from the server with enhanced Mistral support
             eventSource.addEventListener('chunk', (event) => {
                 try {
-                    // Check for [DONE] token
-                    if (event.data === '[DONE]' || event.data.includes('[DONE]')) {
-                        console.log('Received [DONE] token in tailoring');
-                        
-                        if (callbacks.onComplete && this.accumulatedContent) {
-                            callbacks.onComplete(this.accumulatedContent);
-                            this.accumulatedContent = '';
-                        }
-                        
-                        this.closeStream('tailor');
+                    // Remove debug logging
+
+                    if (!event.data) {
+                        console.warn('Empty chunk received');
                         return;
                     }
-                    
-                    // Process with Mistral handler
+
+                    // Process with Mistral handler first to handle [DONE] consistently
                     const processedData = processMistralEventData(event.data);
                     
-                    if (processedData && processedData.content) {
-                        // Accumulate content
-                        this.accumulatedContent += processedData.content;
-                        
-                        if (callbacks.onChunk) {
-                            callbacks.onChunk(processedData.content);
+                    if (processedData) {
+                        if (processedData.done) {
+                            console.log('[chunk event] Detected completion signal');
+                            if (callbacks.onComplete && this.accumulatedContent) {
+                                const cleanLatex = this.validateLatexContent(this.accumulatedContent);
+                                // Remove debug logging
+                                if (cleanLatex) {
+                                    callbacks.onComplete(cleanLatex);
+                                } else {
+                                    callbacks.onError('Failed to validate final LaTeX content');
+                                }
+                            }
+                            this.accumulatedContent = '';
+                            this.closeStream('tailor');
+                            return;
                         }
-                    } else {
-                        // Try fallback parsing
-                        const data = JSON.parse(event.data);
-                        if (callbacks.onChunk && data.content) {
-                            this.accumulatedContent += data.content;
-                            callbacks.onChunk(data.content);
+
+                        // Handle valid content
+                        if (processedData.content) {
+                            const cleanContent = this.validateLatexContent(processedData.content);
+                            if (cleanContent) {
+                                // Essential operation, no debug log needed
+                                this.accumulatedContent += cleanContent;
+                                if (callbacks.onChunk) {
+                                    callbacks.onChunk(cleanContent);
+                                }
+                            }
+                        }
+                        return;
+                    }
+
+                    // Try parsing as JSON first
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        if (parsed.content) {
+                            const cleanContent = this.validateLatexContent(parsed.content);
+                            if (cleanContent) {
+                                this.accumulatedContent += cleanContent;
+                                if (callbacks.onChunk) {
+                                    callbacks.onChunk(cleanContent);
+                                }
+                            }
+                            return;
+                        }
+                    } catch (parseError) {
+                        console.debug('Not JSON content, treating as raw LaTeX');
+                    }
+
+                    // Handle as raw LaTeX content
+                    const cleanContent = this.validateLatexContent(event.data);
+                    if (cleanContent) {
+                        this.accumulatedContent += cleanContent;
+                        if (callbacks.onChunk) {
+                            callbacks.onChunk(cleanContent);
                         }
                     }
                 } catch (error) {
-                    console.error('Error parsing chunk data:', error);
+                    console.error('Error processing chunk:', error);
+                    if (callbacks.onError) {
+                        callbacks.onError(`Failed to process chunk: ${error.message}`);
+                    }
                 }
             });
 
             eventSource.addEventListener('complete', (event) => {
                 try {
-                    const data = JSON.parse(event.data);
-                    if (callbacks.onComplete && data.modifiedContent) {
-                        callbacks.onComplete(data.modifiedContent);
+                    console.debug('[complete event] Starting resume changes processing:', {
+                        hasData: !!event.data,
+                        dataType: typeof event.data,
+                        dataPreview: event.data ? event.data.substring(0, 100) : 'no data',
+                        accumulatedLength: this.accumulatedContent?.length || 0,
+                        eventType: event.type,
+                        hasCallbacks: {
+                            onComplete: !!callbacks.onComplete,
+                            onError: !!callbacks.onError
+                        }
+                    });
+
+                    let finalContent = '';
+
+                    if (event.data) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            console.debug('[complete event] Parsed data:', {
+                                hasModifiedContent: !!data.modifiedContent,
+                                modifiedContentType: typeof data.modifiedContent,
+                                modifiedContentLength: data.modifiedContent?.length || 0,
+                                modifiedContentPreview: data.modifiedContent ?
+                                    data.modifiedContent.substring(0, 100) + '...' : 'none'
+                            });
+
+                            if (data.modifiedContent) {
+                                // Remove debug logging
+                                
+                                finalContent = this.validateLatexContent(data.modifiedContent);
+                                
+                                // Remove debug logging
+                            } else {
+                                console.warn('[complete event] No modifiedContent in data');
+                            }
+                        } catch (parseError) {
+                            console.error('Parse error:', parseError.message);
+                        }
+                    } else {
+                        console.warn('[complete event] No event data received');
+                    }
+
+                    // Fallback to accumulated content
+                    if (!finalContent && this.accumulatedContent) {
+                        // Remove debug logging
+                        
+                        finalContent = this.validateLatexContent(this.accumulatedContent);
+                        
+                        // Remove debug logging
+                    }
+
+                    // Final completion check
+                    if (finalContent) {
+                        // Remove debug logging
+                        
+                        if (callbacks.onComplete) {
+                            callbacks.onComplete(finalContent);
+                        } else {
+                            console.error('[complete event] No onComplete callback available');
+                        }
+                    } else {
+                        console.error('No valid content available for completion');
+                        if (callbacks.onError) {
+                            callbacks.onError('No valid LaTeX content available');
+                        }
                     }
                 } catch (error) {
-                    console.error('Error parsing complete data:', error);
+                    console.error('Error in complete handler:', error);
                     if (callbacks.onError) {
-                        callbacks.onError('Error processing tailoring results: ' + error.message);
-                    }
-                    
-                    // If we have accumulated content, use it as fallback
-                    if (this.accumulatedContent && callbacks.onComplete) {
-                        callbacks.onComplete(this.accumulatedContent);
+                        callbacks.onError('Error processing completion: ' + error.message);
                     }
                 } finally {
+                    this.accumulatedContent = '';
                     this.closeStream('tailor');
                 }
             });
             
-            // Add message event listener for [DONE] tokens in tailoring
+            // Add message event listener for final processing
             eventSource.addEventListener('message', (event) => {
-                if (event.data === '[DONE]') {
-                    console.log('Received [DONE] message event in tailoring');
-                    if (callbacks.onComplete) {
-                        callbacks.onComplete(this.accumulatedContent || '');
+                try {
+                    if (!event.data) return;
+
+                    if (event.data === '[DONE]') {
+                        console.log('Received [DONE] message event in tailoring');
+                        if (callbacks.onComplete && this.accumulatedContent) {
+                            // Final cleanup and validation of LaTeX content
+                            const cleanLatex = this.validateLatexContent(this.accumulatedContent);
+                            if (cleanLatex) {
+                                callbacks.onComplete(cleanLatex);
+                            } else {
+                                callbacks.onError('Failed to validate final LaTeX content');
+                            }
+                            this.accumulatedContent = '';
+                        }
+                        this.closeStream('tailor');
+                        return;
                     }
-                    this.closeStream('tailor');
+
+                    // Handle non-[DONE] messages
+                    const processedData = processMistralEventData(event.data);
+                    if (processedData && processedData.done) {
+                        if (callbacks.onComplete && this.accumulatedContent) {
+                            const cleanLatex = this.validateLatexContent(this.accumulatedContent);
+                            callbacks.onComplete(cleanLatex);
+                            this.accumulatedContent = '';
+                        }
+                        this.closeStream('tailor');
+                    }
+                } catch (error) {
+                    console.error('Error in message handler:', error);
+                    if (callbacks.onError) {
+                        callbacks.onError(`Message processing error: ${error.message}`);
+                    }
                 }
             });
 
@@ -817,19 +950,14 @@ export class StreamHandler {
      * @param {string} streamType - Type of stream to close ('analyze' or 'tailor')
      */
     closeStream(streamType) {
-        if (this.streamConnections[streamType]) {
-            this.cleanup(this.streamConnections[streamType]);
-            this.streamConnections[streamType] = null;
-        }
+        this.connectionManager.closeStream(streamType);
     }
 
     /**
      * Close all stream connections
      */
     closeAllStreams() {
-        Object.keys(this.streamConnections).forEach(streamType => {
-            this.closeStream(streamType);
-        });
+        this.connectionManager.closeAllStreams();
     }
 }
 
@@ -963,14 +1091,29 @@ export async function processJobAnalysis(formData, onUpdate, onError) {
  * @returns {object|null} - Parsed JSON object or null if extraction failed
  */
 function extractValidJSON(text) {
-  // Check for Mistral API [DONE] token
-  if (text === '[DONE]') {
-    return { done: true };
+  // Remove debug logging
+
+  // Handle various [DONE] token formats
+  if (typeof text === 'string') {
+    const trimmed = text.trim();
+    if (trimmed === '[DONE]' || trimmed === '"[DONE]"' || trimmed === ' [DONE]') {
+      // Remove debug logging
+      return { done: true };
+    }
+  }
+
+  // Clean the text before parsing
+  const cleanText = typeof text === 'string' ?
+    text.replace(/^\s*"?\[DONE\]"?\s*$/, '').trim() : text;
+
+  if (!cleanText) {
+    // Remove debug logging
+    return null;
   }
   
   try {
-    // First try direct parsing
-    return JSON.parse(text);
+    // Try parsing the cleaned text
+    return JSON.parse(cleanText);
   } catch (e) {
     console.warn('Initial JSON parsing failed:', e.message);
     
@@ -1045,23 +1188,68 @@ function extractValidJSON(text) {
  */
 function processMistralEventData(eventData) {
   try {
-    // Check for [DONE] token first - this is Mistral's standard stream termination signal
-    if (eventData === '[DONE]' || 
-        (typeof eventData === 'string' && eventData.includes('[DONE]'))) {
-      console.log('Received [DONE] token from Mistral API');
-      return { 
-        done: true,
-        status: 'complete',
-        finish_reason: 'stop'
-      };
+    // Remove debug logging
+
+    // Handle empty or invalid input
+    if (!eventData) {
+      console.warn('Empty event data received');
+      return null;
     }
-    
-    // Handle both string and object inputs
-    const data = typeof eventData === 'string' ? extractValidJSON(eventData) : eventData;
-    
+
+    // Use extractValidJSON to handle [DONE] token uniformly
+    if (typeof eventData === 'string') {
+      const result = extractValidJSON(eventData);
+      if (result && result.done === true) {
+        console.log('Received [DONE] token from Mistral API');
+        return {
+          done: true,
+          status: 'complete',
+          finish_reason: 'stop'
+        };
+      }
+    }
+
+    // If it's a string, try to clean it and parse
+    if (typeof eventData === 'string') {
+      // Remove any [DONE] tokens that might be mixed with content
+      const cleanedData = eventData.replace('[DONE]', '').trim();
+      if (!cleanedData) {
+        return null;
+      }
+
+      try {
+        const data = extractValidJSON(cleanedData);
+        if (!data) {
+          // If it's not JSON but we have content, return it as raw content
+          return {
+            content: cleanedData,
+            status: 'streaming'
+          };
+        }
+        return processDataObject(data);
+      } catch (parseError) {
+        console.warn('Error parsing event data:', parseError);
+        // Return raw content if parsing fails
+        return {
+          content: cleanedData,
+          status: 'streaming'
+        };
+      }
+    }
+
+    // If it's already an object, process it directly
+    return processDataObject(eventData);
+  } catch (error) {
+    console.error('Error in processMistralEventData:', error);
+    return null;
+  }
+}
+
+function processDataObject(data) {
+  try {
     if (!data) return null;
     
-    // Check if the extracted data contains a done flag
+    // Check if the data indicates completion
     if (data.done === true) {
       return {
         done: true,
@@ -1072,31 +1260,31 @@ function processMistralEventData(eventData) {
     
     // Standard Mistral API chat completion response format
     if (data.choices && Array.isArray(data.choices)) {
-      // Extract content from the delta or message object based on streaming vs non-streaming
       const choice = data.choices[0];
       
-      // Check for finish_reason - if present and not null, this is the final message
+      // Final message with finish reason
       if (choice.finish_reason) {
         return {
           content: choice.delta?.content || choice.message?.content || '',
           status: 'complete',
           finish_reason: choice.finish_reason,
           done: true,
-          // Include usage statistics if available
           usage: data.usage || null
         };
       }
       
+      // Streaming chunk
       if (data.object === 'chat.completion.chunk' && choice.delta) {
-        // Streaming format with delta - standard Mistral streaming response
         return {
           content: choice.delta.content || '',
           status: 'streaming',
           finish_reason: null,
           id: data.id
         };
-      } else if (data.object === 'chat.completion' && choice.message) {
-        // Complete non-streaming response
+      }
+      
+      // Complete response
+      if (data.object === 'chat.completion' && choice.message) {
         return {
           content: choice.message.content || '',
           status: 'complete',
@@ -1107,14 +1295,17 @@ function processMistralEventData(eventData) {
       }
     }
     
-    // If this doesn't match Mistral format but has content, return as-is
+    // Direct content
     if (data.content) {
-      return data;
+      return {
+        content: data.content,
+        status: 'streaming'
+      };
     }
     
     return null;
   } catch (error) {
-    console.error('Error processing Mistral event data:', error);
+    console.error('Error processing data object:', error);
     return null;
   }
 }
@@ -1293,6 +1484,75 @@ export function streamTailorResume(sessionId, resumeFile, requirements, options,
 /**
  * Extracts text content from a JSON structure
  */
+/**
+ * Validates and cleans LaTeX content
+ * @param {string} content - LaTeX content to validate
+ * @returns {string} - Cleaned LaTeX content
+ */
+function validateLatexContent(content) {
+    try {
+        // Handle invalid input
+        if (!content) {
+            console.warn('[validateLatexContent] Empty content received');
+            return '';
+        }
+
+        // Convert to string if needed
+        const textContent = String(content).trim();
+        // Remove debug logging
+
+        if (!textContent) {
+            console.warn('[validateLatexContent] Content is empty after trimming');
+            return '';
+        }
+
+        // Basic LaTeX structure validation
+        const hasDocumentClass = textContent.includes('\\documentclass');
+        const hasBeginDocument = textContent.includes('\\begin{document}');
+        const hasEndDocument = textContent.includes('\\end{document}');
+
+        // Log validation results
+        if (!hasDocumentClass || !hasBeginDocument || !hasEndDocument) {
+            console.warn('LaTeX content may be incomplete:', {
+                hasDocumentClass,
+                hasBeginDocument,
+                hasEndDocument
+            });
+        }
+
+        // Clean and normalize content
+        let processedContent = textContent;
+
+        const cleaningSteps = [
+            { name: 'Fix newlines', regex: /\\n/g, replacement: '\n' },
+            { name: 'Remove multiple newlines', regex: /\n{3,}/g, replacement: '\n\n' },
+            { name: 'Normalize spaces around newlines', regex: /\s*\n\s*/g, replacement: '\n' },
+            { name: 'Escape backslashes', regex: /\\\\/g, replacement: '\\\\' },
+            { name: 'Remove null characters', regex: /\0/g, replacement: '' },
+            { name: 'Normalize whitespace', regex: /\s+/g, replacement: ' ' }
+        ];
+
+        cleaningSteps.forEach(step => {
+            const beforeLength = processedContent.length;
+            processedContent = processedContent.replace(step.regex, step.replacement);
+            // Remove debug logging
+        });
+
+        processedContent = processedContent.trim();
+        // Remove debug logging
+
+        if (!processedContent) {
+            console.warn('[validateLatexContent] Content is empty after processing');
+            return '';
+        }
+
+        return processedContent;
+    } catch (error) {
+        console.error('Error in validateLatexContent:', error);
+        return '';
+    }
+}
+
 function extractTextFromJSON(jsonData) {
     // Check common fields where content might be stored
     if (jsonData.content && typeof jsonData.content === 'string') {
@@ -1338,12 +1598,7 @@ function validateStreamTailorInputs(sessionId, resumeFile, requirements) {
     
     const fileExtension = resumeFile.name.split('.').pop().toLowerCase();
     
-    console.log('Validating file format:', {
-        fileName: resumeFile.name,
-        fileExtension,
-        supportedFormats: SUPPORTED_FORMATS,
-        futureFormats: FUTURE_FORMATS
-    });
+    // Remove debug logging
     
     if (!SUPPORTED_FORMATS.includes(fileExtension)) {
         if (FUTURE_FORMATS.includes(fileExtension)) {

@@ -52,7 +52,8 @@ export default {
       testMatch: [
         '**/tests/diffUtils.test.js',
         '**/tests/streamingHandler.test.js',
-        '**/tests/formValidation.test.js'  // Added new frontend test file
+        '**/tests/formValidation.test.js',
+        '**/tests/latexComparison.test.js'  // Added LaTeX comparison test
         // Removed duplicate streamAnalyzeJob.test.js
       ],
       setupFilesAfterEnv: ['./tests/setup.js']

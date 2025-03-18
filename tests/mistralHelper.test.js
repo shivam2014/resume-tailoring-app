@@ -57,7 +57,18 @@ describe('MistralHelper', () => {
               model: "mistral-small-latest",
               choices: [{
                 index: 0,
-                delta: { content: '\\section{Skills}\\n\\begin{itemize}\\n\\item \\textbf{Python}\\n\\item JavaScript\\n\\end{itemize}' }
+                delta: { content: '\\section{Skills}' }
+              }]
+            })}\n\n`));
+            
+            stream.push(Buffer.from(`data: ${JSON.stringify({
+              id: "test",
+              object: "chat.completion.chunk",
+              created: Date.now(),
+              model: "mistral-small-latest",
+              choices: [{
+                index: 0,
+                delta: { content: '\\n\\begin{itemize}\\n\\item Python\\n\\item JavaScript\\n\\end{itemize}' }
               }]
             })}\n\n`));
           }

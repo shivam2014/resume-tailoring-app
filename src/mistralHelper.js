@@ -815,9 +815,6 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             return { abort: () => {} };
         }
         
-        // First convert the resume content to plain text for analysis
-        const plainTextResume = this.latexToPlainText(resumeContent);
-        
         // System message defines the AI's role and behavior
         const systemMessage = {
             role: "system",
@@ -858,33 +855,32 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                         resumeMessage
                     ],
                     stream: true,
-                    temperature: 0.1 // Add temperature for more stable responses
+                    temperature: 0.1
                 }, {
                     responseType: 'stream',
                     signal: controller.signal,
-                    timeout: 30000 // Add explicit timeout
+                    timeout: 60000
                 });
 
                 const stream = this.validateStream(response.data);
                 const decoder = new TextDecoder('utf-8');
-                let buffer = ''; // Define buffer here
-                let accumulatedResponse = '';
-
+                let buffer = '';
+                let fullResponse = '';
+                
                 this.activeStreams.push({ stream, controller });
 
                 const processBuffer = () => {
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop() || ''; // Keep last partial chunk
+                    buffer = lines.pop() || '';
 
                     for (const line of lines) {
                         const trimmedLine = line.trim();
                         if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
                         
-                        const data = trimmedLine.slice(5);
+                        const data = trimmedLine.slice(5).trim();
                         
-                        // Move this check outside of try/catch
                         if (data === '[DONE]') {
-                            continue; // Skip processing [DONE]
+                            continue;
                         }
                         
                         try {
@@ -892,19 +888,17 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                             const content = json.choices?.[0]?.delta?.content || '';
                             
                             if (content) {
-                                accumulatedResponse += content;
+                                // Accumulate the content
+                                fullResponse += content;
+                                
+                                // Send raw chunk for streaming
                                 onChunk(content);
                             }
                         } catch (e) {
-                            console.warn('Warning: Invalid chunk received:', e.message);
-                            // For [DONE] markers, just continue without error
-                            if (data === '[DONE]') {
-                                continue;
+                            if (!data.includes('[DONE]')) {
+                                console.warn('Warning: Invalid chunk received:', e.message);
                             }
-                            // Only call onError for actual JSON parsing errors
-                            if (!this._isFinalChunk(data)) {
-                                console.warn('Invalid chunk format:', e.message);
-                            }
+                            continue;
                         }
                     }
                 };
@@ -914,36 +908,219 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                         buffer += decoder.decode(chunk);
                         processBuffer();
                     } catch (err) {
-                        console.warn('Stream processing error:', err.message, { stack: err.stack });
-                        // Log but don't fail the stream for a single chunk error
+                        console.warn('Error processing stream chunk:', err.message);
                     }
                 });
 
                 stream.on('end', () => {
                     this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
                     
-                    // Process any remaining data
-                    if (buffer.trim()) {
-                        try {
-                            processBuffer();
-                        } catch (err) {
-                            console.warn('Error processing final buffer:', err.message);
-                        }
-                    }
+                    try {
+                        // Process the complete response
+                        const cleanedContent = fullResponse
+                            .replace(/^```(?:latex)?\n/, '')  // Remove latex markers
+                            .replace(/\n```$/, '')           // Remove latex markers
+                            .replace(/\\n/g, '\n')           // Replace escaped newlines
+                            .replace(/\\"/g, '"')            // Replace escaped quotes
+                            .trim();
 
-                    if (!accumulatedResponse.trim()) {
-                        onError('No valid content received from the API. The response may be empty or malformed.');
-                        return;
+                        if (!cleanedContent) {
+                            onError('No valid content received from the API. The response was empty.');
+                            return;
+                        }
+
+                        // Apply skill emphasis and complete
+                        const emphasizedContent = this.emphasizeSkills(cleanedContent);
+                        onComplete(emphasizedContent);
+
+                        let responseStr = fullResponse.trim();
+                        const startPos = responseStr.indexOf('{');
+                        
+                        if (startPos === -1) {
+                            console.error('No JSON object found in response');
+                            onError('Invalid response format: No JSON object found');
+                            return;
+                        }
+                        
+                        let openBraces = 0;
+                        let endPos = -1;
+                        
+                        for (let i = startPos; i < responseStr.length; i++) {
+                            if (responseStr[i] === '{') {
+                                openBraces++;
+                            } else if (responseStr[i] === '}') {
+                                openBraces--;
+                                if (openBraces === 0) {
+                                    endPos = i + 1;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (endPos === -1) {
+                            responseStr = responseStr.substring(startPos) + '}';
+                        } else {
+                            responseStr = responseStr.substring(startPos, endPos);
+                            
+                            if (endPos < fullResponse.length) {
+                                console.log(`Found ${fullResponse.length - endPos} extra characters after JSON closure`);
+                            }
+                        }
+                        
+                        let cleanedJson = responseStr
+                            .replace(/[\u201C\u201D]/g, '"')
+                            .replace(/\\n/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .replace(/\[DONE\]/g, '')
+                            .replace(/\\\\/g, '\\')
+                            .trim();
+
+                        try {
+                            // Check if content contains LaTeX
+                            if (cleanedJson.includes('\\section') || cleanedJson.includes('\\begin')) {
+                                // Extract LaTeX content
+                                const latexContent = cleanedJson
+                                    .replace(/^```(?:latex)?\n/, '')
+                                    .replace(/\n```$/, '')
+                                    .trim();
+
+                                // Apply skill emphasis
+                                const emphasizedContent = this.emphasizeSkills(latexContent);
+                                
+                                // Return the emphasized content
+                                onComplete(emphasizedContent);
+                                return;
+                            }
+                            
+                            // Attempt to fix common JSON issues
+                            let fixedJson = cleanedJson
+                                .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":') // Fix unquoted keys
+                                .replace(/'/g, '"') // Replace single quotes with double quotes
+                                .replace(/,\s*([}\]])/g, '$1') // Remove trailing commas
+                                .replace(/(\w+)\s*:/g, '"$1":'); // Ensure all keys are quoted
+                            
+                            // Attempt JSON parsing for structured responses
+                            try {
+                                const parsedJson = JSON.parse(fixedJson);
+                                
+                                // Handle both modifiedContent and content fields
+                                const contentToUse = parsedJson.modifiedContent || parsedJson.content;
+                                if (!contentToUse) {
+                                    throw new Error('Missing both modifiedContent and content fields');
+                                }
+                                
+                                // Clean markdown code blocks from the response
+                                const cleanedContent = contentToUse
+                                    .replace(/^```(?:latex)?\n/, '')
+                                    .replace(/\n```$/, '')
+                                    .replace(/\\n/g, '\n')
+                                    .replace(/\\"/g, '"')
+                                    .trim();
+                                    
+                                onComplete(cleanedContent);
+                                return;
+                            } catch (jsonError) {
+                                // If JSON parsing still fails, treat as raw LaTeX content
+                                // Preserve LaTeX structure and formatting
+                                const latexContent = cleanedJson
+                                    .replace(/^```(?:latex)?\n/, '')
+                                    .replace(/\n```$/, '')
+                                    .replace(/\\n/g, '\n')
+                                    .replace(/\\"/g, '"')
+                                    .replace(/\{Skills\}/g, '\\section{Skills}') // Fix section formatting
+                                    .replace(/\\textbf\{([^}]+)\}/g, '\\textbf{$1}') // Preserve bold formatting
+                                    .replace(/\\begin\{itemize\}/g, '\\begin{itemize}') // Preserve itemize environment
+                                    .replace(/\\end\{itemize\}/g, '\\end{itemize}') // Preserve itemize environment
+                                    .trim();
+                                onComplete(latexContent);
+                                return;
+                            }
+
+                            onComplete(cleanedContent);
+                        } catch (error) {
+                            console.error(`JSON parsing failed: ${error.message}`);
+                            
+                            try {
+                                // Try to extract JSON using more robust pattern matching
+                                const jsonMatch = cleanedJson.match(/\{(?:[^{}]|(?:\{[^{}]*\}))*\}/);
+                                if (jsonMatch) {
+                                    const extractedJson = jsonMatch[0];
+                                    
+                                    // If we can't find modifiedContent, try using the entire content
+                                    if (!extractedJson.includes('modifiedContent') && extractedJson.includes('content')) {
+                                        const parsedJson = JSON.parse(extractedJson);
+                                        const cleanedContent = parsedJson.content
+                                            .replace(/^```(?:latex)?\n/, '')
+                                            .replace(/\n```$/, '')
+                                            .replace(/\\n/g, '\n')
+                                            .replace(/\\"/g, '"')
+                                            .trim();
+                                        onComplete(cleanedContent);
+                                        return;
+                                    }
+                                    
+                                    const parsedJson = JSON.parse(extractedJson);
+                                    const cleanedContent = parsedJson.modifiedContent
+                                        .replace(/^```(?:latex)?\n/, '')
+                                        .replace(/\n```$/, '')
+                                        .replace(/\\n/g, '\n')
+                                        .replace(/\\"/g, '"')
+                                        .trim();
+                                    onComplete(cleanedContent);
+                                    return;
+                                }
+                                
+                                // If pattern matching fails, try reconstructing JSON
+                                const propertyMatches = cleanedJson.match(/"[^"]+"\s*:\s*(?:\[[^\]]*\]|"[^"]*"|[0-9]+|true|false|null)/g);
+                                
+                                if (propertyMatches && propertyMatches.length > 0) {
+                                    const reconstructedJson = '{\n' + propertyMatches.join(',\n') + '\n}';
+                                    const parsedJson = JSON.parse(reconstructedJson);
+                                    
+                                    // Fallback to content if modifiedContent is missing
+                                    const contentToUse = parsedJson.modifiedContent || parsedJson.content;
+                                    if (!contentToUse) {
+                                        throw new Error('Missing both modifiedContent and content fields');
+                                    }
+                                    
+                                    const cleanedContent = contentToUse
+                                        .replace(/^```(?:latex)?\n/, '')
+                                        .replace(/\n```$/, '')
+                                        .replace(/\\n/g, '\n')
+                                        .replace(/\\"/g, '"')
+                                        .trim();
+                                    onComplete(cleanedContent);
+                                    return;
+                                }
+                                
+                                // If all else fails, try using the raw cleaned content
+                                if (cleanedJson.trim()) {
+                                    const cleanedContent = cleanedJson
+                                        .replace(/^```(?:latex)?\n/, '')
+                                        .replace(/\n```$/, '')
+                                        .replace(/\\n/g, '\n')
+                                        .replace(/\\"/g, '"')
+                                        .trim();
+                                    onComplete(cleanedContent);
+                                    return;
+                                }
+                                
+                                throw new Error('Could not extract or reconstruct valid content');
+                            } catch (fallbackError) {
+                                console.error('All content recovery attempts failed:', fallbackError.message);
+                                onError(`Error processing response: ${fallbackError.message}. Please check the format of your input.`);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error in stream end processing:', error.message);
+                        onError(`Error processing job requirements: ${error.message}`);
                     }
-                    onComplete(accumulatedResponse);
                 });
 
                 stream.on('error', (err) => {
-                    // Remove this stream from active streams array on error
                     this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
                     
-                    // Log detailed error info but send user-friendly message
-                    console.error('Stream error:', err.message, { 
+                    console.error('Stream error:', err.message, {
                         stack: err.stack,
                         code: err.code,
                         type: err.constructor.name
@@ -953,49 +1130,33 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
                     onError(errorMessage);
                 });
 
-                // Cleanup on errors
-                stream.on('close', () => {
-                    // Remove this stream from active streams array when closed
-                    this.activeStreams = this.activeStreams.filter(s => s.stream !== stream);
-                    
-                    // Only report error if we didn't get any content and this wasn't a normal close after completion
-                    if (!accumulatedResponse.trim()) {
-                        onError('Stream closed without receiving valid content. The connection may have been interrupted.');
-                    }
-                });
-                
-                // Return controller for external abort capability
                 return { abort: () => controller.abort() };
 
             } catch (error) {
-                // Handle setup/connection errors with detailed logging
-                console.error('Error setting up streaming:', error.message, { 
+                console.error('Error setting up streaming:', error.message, {
                     stack: error.stack,
                     code: error.code,
                     status: error.response?.status,
                     statusText: error.response?.statusText
                 });
                 
-                // Retry logic for certain errors
-                if (retryCount < maxRetries && 
-                    (error.code === 'ECONNRESET' || error.code === 'ECONNABORTED' || 
+                if (retryCount < maxRetries &&
+                    (error.code === 'ECONNRESET' || error.code === 'ECONNABORTED' ||
                      (error.response && error.response.status >= 500))) {
                     
                     retryCount++;
                     console.log(`Retrying stream request (${retryCount}/${maxRetries})...`);
                     
-                    // Exponential backoff
                     const delay = this.retryDelay * Math.pow(2, retryCount - 1);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     
                     return attemptRequest();
                 }
                 
-                // Create user-friendly error message based on error type
                 const errorMessage = this.createErrorMessage(error, 'resume tailoring');
                 onError(errorMessage);
                 
-                return { abort: () => {} }; // Return no-op function if request failed
+                return { abort: () => {} };
             }
         };
         
@@ -1067,6 +1228,35 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             console.warn('Error processing stream chunk:', err.message);
             return [];
         }
+    }
+
+    // Helper method to emphasize skills in content
+    emphasizeSkills(content) {
+        const skillsToEmphasize = ['Python', 'JavaScript'];
+        let emphasizedContent = content;
+        
+        // Handle skills section
+        const skillsSectionRegex = /(\\section\{Skills\}.*?\\begin\{itemize\})(.*?)(\\end\{itemize\})/s;
+        if (skillsSectionRegex.test(emphasizedContent)) {
+            emphasizedContent = emphasizedContent.replace(skillsSectionRegex, (match, prefix, items, suffix) => {
+                // Process each item in the skills section
+                const processedItems = items.split('\\item').map(item => {
+                    if (!item.trim()) return item;
+                    let processedItem = item;
+                    skillsToEmphasize.forEach(skill => {
+                        const skillRegex = new RegExp(`\\b${skill}\\b`, 'g');
+                        if (skillRegex.test(processedItem) && !processedItem.includes(`\\textbf{${skill}}`)) {
+                            processedItem = processedItem.replace(skillRegex, `\\textbf{${skill}}`);
+                        }
+                    });
+                    return processedItem;
+                }).join('\\item');
+
+                return `${prefix}${processedItems}${suffix}`;
+            });
+        }
+
+        return emphasizedContent;
     }
 
     // Add helper method to detect if this is the final chunk

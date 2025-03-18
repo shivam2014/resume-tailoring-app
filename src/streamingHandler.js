@@ -1,6 +1,31 @@
 const MistralHelper = require('./mistralHelper.js').default;
 
 /**
+ * Validates JSON content and returns parsed object
+ * @param {string} content - JSON string to validate
+ * @returns {Object} Parsed JSON object
+ * @throws {Error} If JSON is invalid
+ */
+const validateJson = (content) => {
+  try {
+    // Remove any trailing characters after JSON closure
+    const jsonEnd = Math.max(
+      content.lastIndexOf('}'),
+      content.lastIndexOf(']')
+    );
+    const cleanContent = content.slice(0, jsonEnd + 1);
+    
+    return JSON.parse(cleanContent);
+  } catch (error) {
+    console.error('JSON validation failed:', {
+      originalContent: content,
+      error: error.message
+    });
+    throw new Error(`Invalid JSON format: ${error.message}`);
+  }
+};
+
+/**
  * Validates required input parameters for job analysis streaming
  * @param {Object} sessionData - Session data object
  */
@@ -44,34 +69,85 @@ const streamAnalyzeJob = async (sessionData) => {
           });
         }
       },
-      // Handle completion
-      (parsedJobRequirements) => {
-        sessionData.jobRequirements = parsedJobRequirements;
-        sessionData.isAnalyzing = false;
-        
-        if (sessionData.clients && Array.isArray(sessionData.clients)) {
-          sessionData.clients.forEach(client => {
-            client.write(`data: ${JSON.stringify({ 
-              type: 'complete', 
-              requirements: parsedJobRequirements 
-            })}\n\n`);
+      { // Options object
+        onComplete: (parsedJobRequirements) => {
+          sessionData.jobRequirements = parsedJobRequirements;
+          sessionData.isAnalyzing = false;
+          
+          if (sessionData.clients && Array.isArray(sessionData.clients)) {
+            sessionData.clients.forEach(client => {
+              client.write(`data: ${JSON.stringify({
+                type: 'complete',
+                requirements: parsedJobRequirements
+              })}\n\n`);
+            });
+          }
+        },
+        onError: (error) => {
+          const errorMessage = error.message.includes('JSON')
+            ? `Invalid JSON format: ${error.message}`
+            : error.message;
+            
+          sessionData.error = errorMessage;
+          sessionData.isAnalyzing = false;
+          
+          console.error(`Error in analysis session ${sessionData.sessionId}:`, {
+            error: errorMessage,
+            stack: error.stack
           });
-        }
-      },
-      // Handle error
-      (error) => {
-        sessionData.error = error;
-        sessionData.isAnalyzing = false;
-        
-        console.error(`Error in analysis session ${sessionData.sessionId}:`, error);
-        
-        if (sessionData.clients && Array.isArray(sessionData.clients)) {
-          sessionData.clients.forEach(client => {
-            client.write(`data: ${JSON.stringify({ type: 'error', message: error })}\n\n`);
-          });
+          
+          if (sessionData.clients && Array.isArray(sessionData.clients)) {
+            sessionData.clients.forEach(client => {
+              client.write(`data: ${JSON.stringify({
+                type: 'error',
+                message: errorMessage,
+                code: 'INVALID_JSON'
+              })}\n\n`);
+            });
+          }
+        },
+        cleanApiContent: (content) => {
+          try {
+            // Remove all markdown code block wrappers and trim
+            let cleaned = content
+              .replace(/^```(?:latex)?\n/, '')  // Handle both ``` and ```latex
+              .replace(/\n```$/, '')
+              .replace(/\\n/g, '\n')            // Convert escaped newlines
+              .replace(/\\"/g, '"')            // Unescape quotes
+              .trim();
+            
+            // Validate JSON structure before returning
+            if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+              validateJson(cleaned); // Test parse using validation utility
+            }
+            
+            if (!cleaned) {
+              throw new Error('Empty content after cleaning Markdown formatting');
+            }
+            return cleaned;
+          } catch (error) {
+            console.error('Error cleaning API content:', {
+              originalContent: content,
+              error: error.message
+            });
+            throw new Error(`Invalid content format: ${error.message}`);
+          }
         }
       }
-    );
+    ).catch((error) => {
+      // This is the additional error handler you wanted to keep
+      sessionData.error = error;
+      sessionData.isAnalyzing = false;
+      
+      console.error(`Error in analysis session ${sessionData.sessionId}:`, error);
+      
+      if (sessionData.clients && Array.isArray(sessionData.clients)) {
+        sessionData.clients.forEach(client => {
+          client.write(`data: ${JSON.stringify({ type: 'error', message: error })}\n\n`);
+        });
+      }
+      throw error; // Re-throw to be caught by the outer try-catch
+    });
     
     // Store abort function for potential cleanup
     sessionData.abortController = { abort };
