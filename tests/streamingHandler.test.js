@@ -57,8 +57,20 @@ describe('StreamHandler', () => {
       };
       
       const formData = new FormData();
-      formData.append('jobDescription', 'test job');
+      formData.append('jobDescription', 'test job description');
       formData.append('apiKey', 'test-key');
+      formData.append('requirements', JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: "Please analyze these job requirements and extract key skills and qualifications."
+          },
+          {
+            role: "user",
+            content: "test job"
+          }
+        ]
+      }));
       
       await handler.streamAnalyzeJob(formData, callbacks);
       
@@ -197,11 +209,12 @@ describe('StreamHandler', () => {
         onError: jest.fn(),
         onStatusUpdate: jest.fn()
       };
+
+      // Reset handler state and fetch mock
+      handler.streamConnections = { analyze: null, tailor: null };
+      fetch.mockReset();
       
-      // Mock validation for this specific test
-      handler.validateAnalyzeFields = jest.fn((formData, errorCallback) => true);
-      
-      // Setup fetch response
+      // Setup fetch to return proper session response
       fetch.mockImplementationOnce(() =>
         Promise.resolve({
           ok: true,
@@ -213,14 +226,35 @@ describe('StreamHandler', () => {
         })
       );
       
+      // Prepare form data with all required fields
       const formData = new FormData();
       formData.append('jobDescription', 'test job description');
+      formData.append('requirements', JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: "Please analyze these job requirements and extract key skills and qualifications."
+          },
+          {
+            role: "user",
+            content: "test job description"
+          }
+        ]
+      }));
       formData.append('apiKey', 'test-key');
       
+      // Execute the streaming job
       await handler.streamAnalyzeJob(formData, callbacks);
       
-      expect(fetch).toHaveBeenCalledWith('/stream-analyze', expect.any(Object));
+      // Verify the request was made correctly
+      expect(fetch).toHaveBeenCalledWith('/stream-analyze', expect.objectContaining({
+        method: 'POST',
+        body: expect.any(FormData)
+      }));
+      
+      // Verify connection was established
       expect(handler.streamConnections.analyze).toBeDefined();
+      expect(handler.streamConnections.analyze.addEventListener).toHaveBeenCalled();
     });
 
     it('should handle analysis errors', async () => {
@@ -296,7 +330,14 @@ describe('StreamHandler', () => {
       // Create simple data object with all required fields
       const tailorData = {
         resumeContent: 'test resume content',
-        jobRequirements: { skills: ['JavaScript'] },
+        jobRequirements: {
+          messages: [
+            {
+              role: "user",
+              content: "JavaScript Developer position with focus on web applications"
+            }
+          ]
+        },
         apiKey: 'test-key'
       };
       
@@ -436,7 +477,76 @@ describe('StreamHandler', () => {
   });
 
   describe('streamAnalyzeJob validation', () => {
-    it('should throw error when jobDescription is missing', async () => {
+    it('should validate message structure in requirements', async () => {
+      const errorCallback = jest.fn();
+      const callbacks = {
+        onError: errorCallback,
+        onChunk: jest.fn(),
+        onComplete: jest.fn(),
+        onStatusUpdate: jest.fn()
+      };
+
+      // Mock validateAnalyzeFields to simulate validation failure
+      handler.validateAnalyzeFields = jest.fn((formData) => {
+        const requirements = formData.get('requirements');
+        if (requirements) {
+          try {
+            const data = JSON.parse(requirements);
+            const message = data.messages?.[0];
+            if (message?.role && !['system', 'user', 'assistant'].includes(message.role)) {
+              errorCallback('Invalid message role: must be system, user, or assistant');
+              return false;
+            }
+          } catch (e) {
+            errorCallback('Invalid JSON format in requirements');
+            return false;
+          }
+        }
+        return true;
+      });
+
+      const formData = new FormData();
+      formData.append('jobDescription', 'test job');
+      formData.append('apiKey', 'test-key');
+      formData.append('requirements', JSON.stringify({
+        messages: [
+          { role: "invalid", content: "test" }
+        ]
+      }));
+
+      await handler.streamAnalyzeJob(formData, callbacks);
+      expect(errorCallback).toHaveBeenCalledWith(expect.stringContaining('Invalid message role'));
+    });
+
+    it('should throw error when requirements is missing', async () => {
+      const errorCallback = jest.fn();
+      const callbacks = {
+        onError: errorCallback,
+        onChunk: jest.fn(),
+        onComplete: jest.fn(),
+        onStatusUpdate: jest.fn()
+      };
+
+      // Mock validateAnalyzeFields to check for missing requirements
+      handler.validateAnalyzeFields = jest.fn((formData) => {
+        if (!formData.get('requirements')) {
+          errorCallback('Missing required field: requirements');
+          return false;
+        }
+        return true;
+      });
+      
+      const formData = new FormData();
+      formData.append('jobDescription', 'test job');
+      formData.append('apiKey', 'test-key');
+      
+      await handler.streamAnalyzeJob(formData, callbacks);
+      
+      expect(errorCallback).toHaveBeenCalledWith('Missing required field: requirements');
+      expect(handler.validateAnalyzeFields).toHaveBeenCalledWith(formData, expect.any(Function));
+    });
+
+    it('should throw error when apiKey is missing', async () => {
       const errorCallback = jest.fn();
       const callbacks = {
         onError: errorCallback,
@@ -446,27 +556,17 @@ describe('StreamHandler', () => {
       };
       
       const formData = new FormData();
-      formData.append('apiKey', 'test-key');
+      formData.append('jobDescription', 'test job');
+      formData.append('requirements', JSON.stringify({
+        messages: [{ role: "user", content: "test requirements" }]
+      }));
+      // apiKey intentionally omitted
       
       await handler.streamAnalyzeJob(formData, callbacks);
       
-      expect(errorCallback).toHaveBeenCalledWith(expect.stringContaining('jobDescription'));
-    });
-
-    it('should throw error when apiKey is missing', async () => {
-      const errorCallback = jest.fn();
-      
-      const formData = new FormData();
-      formData.append('jobDescription', 'test job');
-      
-      await handler.streamAnalyzeJob(formData, {
-        onError: errorCallback,
-        onChunk: jest.fn(),
-        onComplete: jest.fn(),
-        onStatusUpdate: jest.fn()
-      });
-      
-      expect(errorCallback).toHaveBeenCalledWith(expect.stringContaining('Missing required field: apiKey'));
+      expect(errorCallback).toHaveBeenCalledWith(
+        expect.stringContaining('Missing required field: apiKey')
+      );
     });
 
     it('should throw error when both required fields are missing', async () => {

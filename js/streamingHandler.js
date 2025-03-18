@@ -130,13 +130,22 @@ export function streamTailorResume(resumeFile, jobDescription, options = {}) {
           return;
         }
         
-        // Prepare form data with content and format information
-        // Prepare request body with format information
+        // Prepare form data with original file and metadata
         const formData = new FormData();
-        formData.append('resumeContent', extractedContent);
-        formData.append('jobDescription', jobDescription);
+        formData.append('resume', resumeFile);  // Send actual File object
+        // Format as per Mistral API requirements
+        const messages = [
+          {
+            role: "system",
+            content: "Please analyze these job requirements and extract key skills and qualifications."
+          },
+          {
+            role: "user",
+            content: jobDescription
+          }
+        ];
+        formData.append('requirements', JSON.stringify({ messages }));
         formData.append('format', fileExtension);
-        formData.append('fileFormat', fileExtension); // Include format explicitly
         
         // Add optional parameters
         if (options.apiKey) {
@@ -154,15 +163,7 @@ export function streamTailorResume(resumeFile, jobDescription, options = {}) {
           try {
             const response = await fetch('/tailor-resume', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                resumeContent: extractedContent,
-                jobDescription: jobDescription,
-                format: fileExtension,
-                apiKey: options.apiKey
-              })
+              body: formData
             });
 
             if (!response.ok) {
@@ -219,8 +220,19 @@ export class StreamHandler {
 
       // Create session with format information
       const formData = new FormData();
-      formData.append('resumeContent', extractedContent);
-      formData.append('jobDescription', data.jobDescription);
+      formData.append('resume', data.resumeFile);  // Match server upload field name
+      // Format as per Mistral API requirements
+      const messages = [
+        {
+          role: "system",
+          content: "Please analyze these job requirements and extract key skills and qualifications."
+        },
+        {
+          role: "user",
+          content: data.jobDescription
+        }
+      ];
+      formData.append('requirements', JSON.stringify({ messages }));
       formData.append('format', fileExtension);
       formData.append('apiKey', data.apiKey);
 
@@ -233,14 +245,10 @@ export class StreamHandler {
         callbacks.onStart({ format: fileExtension });
       }
 
-      const response = await this.fileStreamTailorResume(
-        data.resumeFile,
-        data.jobDescription,
-        {
-          apiKey: data.apiKey,
-          tailorPrompt: data.tailorPrompt
-        }
-      );
+      const response = await fetch('/stream-tailor', {
+        method: 'POST',
+        body: formData
+      });
 
       if (callbacks?.onComplete) {
         callbacks.onComplete(response);

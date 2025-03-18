@@ -378,26 +378,71 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             throw new Error('Invalid resume content. Please provide valid LaTeX content.');
         }
         
+        // Validate requirements structure
         if (!jobRequirements || typeof jobRequirements !== 'object') {
-            throw new Error('Invalid job requirements. Please provide valid job requirements object.');
+            throw new Error('Job requirements must be an object');
+        }
+
+        if (!jobRequirements.messages || !Array.isArray(jobRequirements.messages)) {
+            throw new Error('Job requirements must contain a messages array');
+        }
+
+        // Validate each message has required fields per Mistral API
+        const validRoles = ['system', 'user', 'assistant'];
+        const invalidMessages = jobRequirements.messages.filter(msg =>
+            !msg || typeof msg !== 'object' ||
+            !msg.role || !validRoles.includes(msg.role) ||
+            !msg.content || typeof msg.content !== 'string'
+        );
+
+        if (invalidMessages.length > 0) {
+            throw new Error(
+                'Invalid message format. Each message must have:\n' +
+                `- role (one of: ${validRoles.join(', ')})\n` +
+                '- content (string)'
+            );
         }
         
         // First convert the resume content to plain text for analysis
         const plainTextResume = this.latexToPlainText(resumeContent);
         
-        // Replace placeholders in prompt with properly formatted content
-        const prompt = this.tailorPrompt
-            .replace('[RESUME_CONTENT]', resumeContent)
-            .replace('[JOB_REQUIREMENTS]', JSON.stringify(jobRequirements, null, 2));
+        // System message defines the AI's role and behavior
+        const systemMessage = {
+            role: "system",
+            content: "You are an expert resume tailoring assistant. Your task is to modify the LaTeX resume to match job requirements while preserving structure and formatting."
+        };
+
+        // Formatting instructions as user message
+        const formatMessage = {
+            role: "user",
+            content: this.tailorPrompt
+        };
+
+        // Job requirements as user input
+        const requirementsMessage = {
+            role: "user",
+            content: `Here are the job requirements: ${jobRequirements.messages[0].content}`
+        };
+
+        // Resume content as user input
+        const resumeMessage = {
+            role: "user",
+            content: `Here is the LaTeX resume to tailor: ${resumeContent}`
+        };
+
+        const messages = [
+            systemMessage,
+            formatMessage,
+            requirementsMessage,
+            resumeMessage
+        ];
 
         return this.retryApiCall(async () => {
             try {
                 const response = await this.client.post('/chat/completions', {
-                    model: "mistral-small",
-                    messages: [{
-                        role: "user",
-                        content: prompt
-                    }]
+                    model: "mistral-small-latest",
+                    messages,
+                    temperature: 0.1  // Lower temperature for more focused responses
                 });
 
                 const content = response.data.choices[0]?.message?.content;
@@ -773,10 +818,29 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
         // First convert the resume content to plain text for analysis
         const plainTextResume = this.latexToPlainText(resumeContent);
         
-        // Replace placeholders in prompt with properly formatted content
-        const prompt = this.tailorPrompt
-            .replace('[RESUME_CONTENT]', resumeContent)
-            .replace('[JOB_REQUIREMENTS]', JSON.stringify(jobRequirements, null, 2));
+        // System message defines the AI's role and behavior
+        const systemMessage = {
+            role: "system",
+            content: "You are an expert resume tailoring assistant. Your task is to modify the LaTeX resume to match job requirements while preserving structure and formatting."
+        };
+
+        // Formatting instructions as user message
+        const formatMessage = {
+            role: "user",
+            content: this.tailorPrompt
+        };
+
+        // Job requirements as user input
+        const requirementsMessage = {
+            role: "user",
+            content: `Here are the job requirements: ${jobRequirements.messages[0].content}`
+        };
+
+        // Resume content as user input
+        const resumeMessage = {
+            role: "user",
+            content: `Here is the LaTeX resume to tailor: ${resumeContent}`
+        };
 
         // Create an abort controller for this request
         const controller = new AbortController();
@@ -787,10 +851,12 @@ Return only the modified LaTeX content. Keep all original LaTeX commands and str
             try {
                 const response = await this.client.post('/chat/completions', {
                     model: "mistral-small-latest",
-                    messages: [{
-                        role: "user",
-                        content: prompt
-                    }],
+                    messages: [
+                        systemMessage,
+                        formatMessage,
+                        requirementsMessage,
+                        resumeMessage
+                    ],
                     stream: true,
                     temperature: 0.1 // Add temperature for more stable responses
                 }, {

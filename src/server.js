@@ -54,10 +54,8 @@ const startServer = (initialPort) => {
     return server;
 };
 
-// Middleware
+// Middleware - body parsers removed from global scope
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use('/views', express.static(path.join(__dirname, '../views')));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -91,24 +89,29 @@ const upload = multer({
         const fileExt = path.extname(file.originalname).toLowerCase();
         if (!allowedExtensions.includes(fileExt)) {
             const error = new Error(`Unsupported file format. Allowed formats: ${allowedExtensions.join(', ')}`);
+            error.code = 'LIMIT_FILE_TYPE';
             return cb(error, false);
         }
         cb(null, true);
+    },
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB
     }
 });
 
 // Wrapper for multer upload to handle file type validation
 const uploadMiddleware = (req, res, next) => {
-    upload.single('resumeFile')(req, res, (err) => {
+    upload.single('resume')(req, res, (err) => {
         if (err) {
-            if (err.code === 'LIMIT_FILE_TYPE') {
+            if (err.code === 'LIMIT_FILE_TYPE' || err.message.includes('Unsupported file format')) {
                 return res.status(400).json({
                     error: 'Unsupported file format',
                     allowedFormats: ['.tex', '.json', '.md', '.txt']
                 });
             }
             return res.status(400).json({
-                error: err.message,
+                error: 'Invalid file upload',
+                details: err.message,
                 allowedFormats: ['.tex', '.json', '.md', '.txt']
             });
         }
@@ -122,13 +125,17 @@ const uploadMiddleware = (req, res, next) => {
     });
 };
 
+// Add body parsers for JSON and URL-encoded data
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'views/index.html'));
 });
 
-// Handle form-urlencoded data for /stream-analyze
-app.post('/stream-analyze', express.urlencoded({ extended: true }), (req, res) => {
+// Handle job analysis streaming setup
+app.post('/stream-analyze', express.json(), (req, res) => {
     try {
         if (!req.body.jobDescription || !req.body.apiKey) {
           return res.status(400).json({
@@ -223,51 +230,6 @@ app.post('/upload', uploadMiddleware, async (req, res) => {
             error: 'Error processing resume', 
             details: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Modified: Store streaming session data and return a session ID
-app.post('/stream-analyze', (req, res) => {
-    try {
-        if (!req.body.jobDescription || !req.body.apiKey) {
-          return res.status(400).json({
-            error: 'Missing required fields',
-            details: 'Please provide job description and API key'
-          });
-        }
-
-        // Create a session ID
-        const newSessionId = Date.now().toString() + Math.random().toString(36).substring(2, 10);
-        
-        // Store the session data without resume path
-        const sessionData = {
-          jobDescription: req.body.jobDescription,
-          apiKey: req.body.apiKey,
-          analyzePrompt: req.body.analyzePrompt,
-          resumePath: null, // No resume file required
-          apiKeyReceived: req.body.apiKey, // Log the API key
-          clients: [],
-          isAnalyzing: false,
-          jobRequirements: null,
-          error: null
-        };
-        
-        console.log(`Creating new analysis session ${newSessionId} with data:`, sessionData);
-        streamingSessions.analyze.set(newSessionId, sessionData);
-        
-        // Log all active sessions
-        console.log('Active sessions:', Array.from(streamingSessions.analyze.keys()));
-        
-        // Return the session ID
-        const response = { sessionId: newSessionId };
-        console.log('Returning session response:', response);
-        return res.status(200).json(response);
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({
-            error: 'Error setting up streaming session',
-            details: error.message
         });
     }
 });
@@ -408,18 +370,54 @@ app.post('/stream-tailor', uploadMiddleware, (req, res) => {
         console.log('Request body:', req.body);
         console.log('Uploaded file:', req.file);
 
-        if (!req.file || !req.body.requirements || !req.body.apiKey) {
+        // Validate required fields with detailed error messages
+        const missingFields = [];
+        if (!req.file) missingFields.push('resume file');
+        if (!req.body.requirements) missingFields.push('requirements');
+        if (!req.body.apiKey) missingFields.push('API key');
+        
+        if (missingFields.length > 0) {
+            console.log('Missing fields:', missingFields);
+            // Return response immediately without processing
             return res.status(400).json({
                 error: 'Missing required fields',
-                details: 'Please provide resume file, requirements, and API key'
+                details: `Please provide: ${missingFields.join(', ')}`,
+                requiredFields: ['resume', 'requirements', 'apiKey']
+            }).end(); // Ensure response is sent immediately
+        }
+
+        // Add timeout handling for the request
+        req.setTimeout(15000, () => {
+            console.warn('Request timeout');
+            return res.status(408).json({
+                error: 'Request timeout',
+                details: 'The server took too long to process the request'
+            });
+        });
+
+        let requirements;
+        try {
+            // Parse requirements if it's a string
+            requirements = typeof req.body.requirements === 'string'
+                ? JSON.parse(req.body.requirements)
+                : req.body.requirements;
+
+            // Validate message structure
+            if (!requirements?.messages || !Array.isArray(requirements.messages)) {
+                throw new Error('Invalid message structure');
+            }
+        } catch (error) {
+            console.error('Error parsing requirements:', error);
+            return res.status(400).json({
+                error: 'Invalid requirements format',
+                details: 'Requirements must be a valid JSON with messages array'
             });
         }
 
         const {
-            requirements,
             apiKey,
             tailorPrompt
-          } = req.body;
+        } = req.body;
           console.log('API Key received in /stream-tailor:', apiKey);
           // Read and validate the uploaded file
         let resumeContent = fs.readFileSync(req.file.path, 'utf-8');

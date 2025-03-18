@@ -30,8 +30,14 @@
   - Required field validation checklist:
     - sessionId: string (non-empty)
     - content: object with text property
-    - options: object with required parameters (jobType, targetPosition)
-  - Check for null/undefined values before access (especially for sessionId)
+    - requirements: object with messages array
+    - jobDescription: string (non-empty)
+    - apiKey: string (non-empty)
+  - Messages array validation:
+    - role: one of ["system", "user", "assistant"]
+    - content: string (non-empty)
+  - Check for null/undefined values before access
+  - Use format-specific validation for different file types
   - Provide meaningful error messages with field names
   - Implement request validation middleware
   - Provide meaningful error messages

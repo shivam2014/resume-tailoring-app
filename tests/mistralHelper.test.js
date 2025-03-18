@@ -335,8 +335,10 @@ describe('MistralHelper', () => {
   describe('streamTailorResume', () => {
     const sampleLatex = '\\section{Skills}\nTest skills';
     const requirements = {
-      technicalSkills: ['Python', 'JavaScript'],
-      softSkills: ['Communication']
+      messages: [{
+        role: "user",
+        content: "Python, JavaScript programming required. Strong communication skills needed."
+      }]
     };
 
     // Note: No beforeEach needed as streaming is handled in the post mock
@@ -411,7 +413,12 @@ describe('MistralHelper', () => {
       const streamPromise = new Promise((resolve, reject) => {
         mistralHelper.streamTailorResume(
           sampleLatex,
-          {},
+          {
+            messages: [{
+              role: "user",
+              content: ""
+            }]
+          },
           onChunk,
           (result) => {
             onComplete(result);
