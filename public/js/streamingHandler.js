@@ -543,21 +543,25 @@ export class StreamHandler {
             }
 
             // First send the data to initiate the streaming and get a session ID
+            const formData = new FormData();
+            const file = new File([data.resumeContent], "resume.tex", { type: "application/x-latex" });
+            formData.append('resume', file);
+            // Format requirements as expected by the server
+            const formattedRequirements = {
+                messages: [{
+                    role: "system",
+                    content: JSON.stringify(data.jobRequirements)
+                }]
+            };
+            formData.append('requirements', JSON.stringify(formattedRequirements));
+            formData.append('apiKey', data.apiKey);
+            if (data.tailorPrompt) {
+                formData.append('tailorPrompt', data.tailorPrompt);
+            }
+
             const response = await fetch('/stream-tailor', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    ...data,
-                    metadata: {
-                        ...data.metadata,
-                        fileType: 'tex',
-                        contentType: 'application/x-latex',
-                        fileFormat: 'tex'
-                    }
-                })
+                body: formData
             });
 
             let errorData;
